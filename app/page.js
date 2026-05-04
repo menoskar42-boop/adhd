@@ -6,6 +6,7 @@ import { theme } from "@/lib/theme";
 
 const DEFAULT_MINUTES = 10;
 const MAX_MINUTES = 25;
+const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION || "local-build";
 
 function formatTime(totalSeconds) {
   const minutes = Math.floor(totalSeconds / 60)
@@ -150,6 +151,7 @@ export default function Home() {
       }}
     >
       <div className="w-full max-w-md text-center space-y-10">
+        <p className="text-xs opacity-60">Build: {APP_VERSION}</p>
         {!task ? (
           <>
             <h1 className="text-5xl font-semibold">NeuroPilot</h1>
