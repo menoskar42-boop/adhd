@@ -5,7 +5,6 @@ import { clearTask, getTask, setTask } from "@/lib/storage";
 import { theme } from "@/lib/theme";
 
 const DEFAULT_MINUTES = 10;
-const MAX_MINUTES = 25;
 const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION || "local-build";
 
 function formatTime(totalSeconds) {
@@ -86,7 +85,7 @@ export default function Home() {
     setTaskTitle("");
     setSecondsLeft(DEFAULT_MINUTES * 60);
     setShowDonePrompt(false);
-    setAutoStartCount(3);
+    setAutoStartCount(2);
   };
 
 
@@ -106,15 +105,13 @@ export default function Home() {
 
   const continueSession = () => {
     if (!task) return;
-    const nextDuration = Math.min(currentMinutes + 5, MAX_MINUTES);
     const nextTask = {
       ...task,
       sessions: [...task.sessions, { duration: currentMinutes, completed: true }],
-      currentDuration: nextDuration,
     };
     saveTask(nextTask);
     setShowDonePrompt(false);
-    setSecondsLeft(nextDuration * 60);
+    setSecondsLeft((task.currentDuration || DEFAULT_MINUTES) * 60);
     setIsRunning(true);
     setAutoStartCount(0);
   };
@@ -195,7 +192,7 @@ export default function Home() {
             ) : (
               <div className="space-y-8">
                 {autoStartCount > 0 && !isRunning ? (
-                  <p className="text-3xl font-semibold">Starting in 3...2...1...</p>
+                  <p className="text-3xl font-semibold">Starting in {autoStartCount}...</p>
                 ) : null}
 
                 <button
