@@ -7,6 +7,7 @@ import { theme } from "@/lib/theme";
 const DEFAULT_MINUTES = 10;
 const MAX_MINUTES = 25;
 const MIN_MINUTES = 5;
+const SESSION_OPTIONS = [5, 10, 15, 20, 25];
 
 function formatTime(totalSeconds) {
   const minutes = Math.floor(totalSeconds / 60)
@@ -195,7 +196,7 @@ export default function Home() {
                 className="mt-2 w-full rounded-xl border-2 px-4 py-3 text-xl"
                 style={{ borderColor: theme.colors.primary }}
               >
-                {[5, 10, 15, 20, 25].map((minutes) => (
+                {SESSION_OPTIONS.map((minutes) => (
                   <option key={minutes} value={minutes}>
                     {minutes} min
                   </option>
