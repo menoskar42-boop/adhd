@@ -88,10 +88,6 @@ export default function Home() {
     setAutoStartCount(3);
   };
 
-  const startTimer = () => {
-    if (secondsLeft === 0) setSecondsLeft(currentMinutes * 60);
-    setIsRunning(true);
-  };
 
   const stopEarly = () => {
     if (!task) return;
@@ -104,7 +100,7 @@ export default function Home() {
     setIsRunning(false);
     setSecondsLeft(DEFAULT_MINUTES * 60);
     setShowDonePrompt(false);
-    setAutoStartCount(3);
+    setAutoStartCount(0);
   };
 
   const continueSession = () => {
@@ -118,7 +114,8 @@ export default function Home() {
     saveTask(nextTask);
     setShowDonePrompt(false);
     setSecondsLeft(nextDuration * 60);
-    setAutoStartCount(3);
+    setIsRunning(true);
+    setAutoStartCount(0);
   };
 
   const startDistractionReset = () => {
@@ -148,19 +145,19 @@ export default function Home() {
     <main
       className="min-h-screen w-full flex items-center justify-center px-6"
       style={{
-        backgroundColor: isRunning ? "#EAF1EC" : theme.colors.background,
+        backgroundColor: "#EAF1EC",
         color: theme.colors.text,
       }}
     >
-      <div className="w-full max-w-md text-center space-y-6">
+      <div className="w-full max-w-md text-center space-y-10">
         {!task ? (
           <>
-            <h1 className="text-4xl font-semibold">NeuroPilot</h1>
+            <h1 className="text-5xl font-semibold">NeuroPilot</h1>
             <input
               value={taskTitle}
               onChange={(e) => setTaskTitle(e.target.value)}
               placeholder="Your one task"
-              className="w-full rounded-xl px-4 py-4 text-2xl"
+              className="w-full rounded-xl px-6 py-5 text-3xl text-center"
             />
             <button
               onClick={addTask}
@@ -177,7 +174,7 @@ export default function Home() {
 
             {showDonePrompt ? (
               <div className="space-y-4">
-                <p className="text-3xl font-semibold">Done?</p>
+                <p className="text-5xl font-semibold">Done?</p>
                 <button
                   onClick={finishTask}
                   className="w-full rounded-xl py-4 text-2xl font-semibold text-white"
@@ -188,28 +185,28 @@ export default function Home() {
                 <button
                   onClick={continueSession}
                   className="w-full rounded-xl py-4 text-2xl font-semibold text-white"
-                  style={{ backgroundColor: theme.colors.primary, opacity: 0.85 }}
+                  style={{ backgroundColor: theme.colors.primary }}
                 >
                   Continue
                 </button>
               </div>
             ) : (
-              <div className="space-y-6">
+              <div className="space-y-8">
                 {autoStartCount > 0 && !isRunning ? (
-                  <p className="text-2xl font-semibold">Starting in {autoStartCount}...</p>
+                  <p className="text-3xl font-semibold">Starting in 3...2...1...</p>
                 ) : null}
 
                 <button
-                  onClick={isRunning ? stopEarly : startTimer}
-                  className="w-full rounded-xl border-2 py-5 text-3xl font-semibold text-white"
+                  onClick={isRunning ? stopEarly : undefined}
+                  className="w-full rounded-xl border-2 py-6 text-4xl font-semibold text-white"
                   style={{ borderColor: theme.colors.primary, backgroundColor: theme.colors.primary }}
                 >
-                  {isRunning ? "Stop" : "Start Now"}
+                  {isRunning ? "Stop" : "Running"}
                 </button>
 
                 <button
                   onClick={startDistractionReset}
-                  className="text-lg font-medium opacity-80"
+                  className="text-2xl font-medium"
                 >
                   I'm distracted
                 </button>
