@@ -83,6 +83,14 @@ export default function Home() {
     setSecondsLeft(currentMinutes * 60);
   };
 
+  const updateCurrentDuration = (minutes) => {
+    if (!task) return;
+    const nextTask = { ...task, currentDuration: minutes };
+    saveTask(nextTask);
+    setSecondsLeft(minutes * 60);
+    setIsRunning(false);
+    setShowDonePrompt(false);
+  };
 
   const finishTask = () => {
     clearTask();
@@ -166,6 +174,21 @@ export default function Home() {
           <>
             <h1 className="text-4xl font-semibold">{task.title}</h1>
             <p className="text-6xl font-bold">{formatTime(secondsLeft)}</p>
+            <label className="block text-left text-lg font-semibold">
+              Session length (minutes)
+              <select
+                value={currentMinutes}
+                onChange={(e) => updateCurrentDuration(Number(e.target.value))}
+                className="mt-2 w-full rounded-xl border-2 px-4 py-3 text-xl"
+                style={{ borderColor: theme.colors.primary }}
+              >
+                {[5, 10, 15, 20, 25].map((minutes) => (
+                  <option key={minutes} value={minutes}>
+                    {minutes} min
+                  </option>
+                ))}
+              </select>
+            </label>
 
             {showDonePrompt ? (
               <div className="space-y-4">
