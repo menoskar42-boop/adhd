@@ -83,13 +83,18 @@ export default function Home() {
     setSecondsLeft(currentMinutes * 60);
   };
 
-  const switchTask = () => {
+
+  const finishTask = () => {
     clearTask();
     setTaskState(null);
     setShowDonePrompt(false);
     setIsRunning(false);
     setTaskDuration(DEFAULT_MINUTES);
     setSecondsLeft(DEFAULT_MINUTES * 60);
+  };
+
+  const switchTask = () => {
+    finishTask();
   };
 
   const stopEarly = () => {
@@ -171,6 +176,13 @@ export default function Home() {
                   style={{ border: `2px solid ${theme.colors.primary}` }}
                 >
                   Continue Next Session
+                </button>
+                <button
+                  onClick={finishTask}
+                  className="w-full rounded-xl py-4 text-2xl font-semibold"
+                  style={{ border: `2px solid ${theme.colors.accent}` }}
+                >
+                  Finish Task
                 </button>
                 <button
                   onClick={switchTask}
