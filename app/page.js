@@ -5,6 +5,7 @@ import { clearTask, getTask, setTask } from "@/lib/storage";
 import { theme } from "@/lib/theme";
 
 const DEFAULT_MINUTES = 10;
+const STOP_EARLY_RESET_MINUTES = 3;
 const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION || "local-build";
 
 function formatTime(totalSeconds) {
@@ -18,7 +19,7 @@ function formatTime(totalSeconds) {
 export default function Home() {
   const [taskTitle, setTaskTitle] = useState("");
   const [task, setTaskState] = useState(null);
-  const [secondsLeft, setSecondsLeft] = useState(DEFAULT_MINUTES * 60);
+  const [timeLeft, setTimeLeft] = useState(DEFAULT_MINUTES * 60);
   const [isRunning, setIsRunning] = useState(false);
   const [showDonePrompt, setShowDonePrompt] = useState(false);
   const [autoStartCount, setAutoStartCount] = useState(0);
@@ -27,14 +28,14 @@ export default function Home() {
     const saved = getTask();
     if (saved) {
       setTaskState(saved);
-      setSecondsLeft((saved.currentDuration || DEFAULT_MINUTES) * 60);
+      setTimeLeft((saved.currentDuration || DEFAULT_MINUTES) * 60);
     }
   }, []);
 
   useEffect(() => {
     if (!isRunning) return;
     const id = setInterval(() => {
-      setSecondsLeft((prev) => {
+      setTimeLeft((prev) => {
         if (prev <= 1) {
           clearInterval(id);
           setIsRunning(false);
@@ -63,7 +64,7 @@ export default function Home() {
     const id = setTimeout(() => {
       setAutoStartCount((prev) => {
         if (prev <= 1) {
-          setSecondsLeft((task.currentDuration || DEFAULT_MINUTES) * 60);
+          setTimeLeft((task.currentDuration || DEFAULT_MINUTES) * 60);
           setIsRunning(true);
           return 0;
         }
@@ -83,7 +84,7 @@ export default function Home() {
     };
     saveTask(nextTask);
     setTaskTitle("");
-    setSecondsLeft(DEFAULT_MINUTES * 60);
+    setTimeLeft(DEFAULT_MINUTES * 60);
     setShowDonePrompt(false);
     setAutoStartCount(2);
   };
@@ -94,11 +95,11 @@ export default function Home() {
     const nextTask = {
       ...task,
       sessions: [...task.sessions, { duration: currentMinutes, completed: false }],
-      currentDuration: DEFAULT_MINUTES,
+      currentDuration: STOP_EARLY_RESET_MINUTES,
     };
     saveTask(nextTask);
     setIsRunning(false);
-    setSecondsLeft(DEFAULT_MINUTES * 60);
+    setTimeLeft(STOP_EARLY_RESET_MINUTES * 60);
     setShowDonePrompt(false);
     setAutoStartCount(0);
   };
@@ -111,7 +112,7 @@ export default function Home() {
     };
     saveTask(nextTask);
     setShowDonePrompt(false);
-    setSecondsLeft((task.currentDuration || DEFAULT_MINUTES) * 60);
+    setTimeLeft((task.currentDuration || DEFAULT_MINUTES) * 60);
     setIsRunning(true);
     setAutoStartCount(0);
   };
@@ -125,7 +126,7 @@ export default function Home() {
     };
     saveTask(nextTask);
     setShowDonePrompt(false);
-    setSecondsLeft(5 * 60);
+    setTimeLeft(5 * 60);
     setIsRunning(true);
     setAutoStartCount(0);
   };
@@ -134,7 +135,7 @@ export default function Home() {
     clearTask();
     setTaskState(null);
     setShowDonePrompt(false);
-    setSecondsLeft(DEFAULT_MINUTES * 60);
+    setTimeLeft(DEFAULT_MINUTES * 60);
     setIsRunning(false);
     setAutoStartCount(0);
   };
@@ -169,7 +170,7 @@ export default function Home() {
         ) : (
           <>
             <h1 className="text-4xl font-semibold">{task.title}</h1>
-            <p className="text-6xl font-bold">{formatTime(secondsLeft)}</p>
+            <p className="text-6xl font-bold">{formatTime(timeLeft)}</p>
 
             {showDonePrompt ? (
               <div className="space-y-4">
@@ -195,13 +196,35 @@ export default function Home() {
                   <p className="text-3xl font-semibold">Starting in {autoStartCount}...</p>
                 ) : null}
 
-                <button
-                  onClick={isRunning ? stopEarly : undefined}
-                  className="w-full rounded-xl border-2 py-6 text-4xl font-semibold text-white"
-                  style={{ borderColor: theme.colors.primary, backgroundColor: theme.colors.primary }}
-                >
-                  {isRunning ? "Stop" : "Running"}
-                </button>
+                {!isRunning ? (
+                  <button
+                    onClick={() => {
+                      setIsRunning(true);
+                      setAutoStartCount(0);
+                    }}
+                    className="w-full rounded-xl border-2 py-6 text-4xl font-semibold text-white"
+                    style={{ borderColor: theme.colors.primary, backgroundColor: theme.colors.primary }}
+                  >
+                    Start
+                  </button>
+                ) : (
+                  <div className="space-y-4">
+                    <button
+                      onClick={() => setIsRunning(false)}
+                      className="w-full rounded-xl border-2 py-6 text-4xl font-semibold text-white"
+                      style={{ borderColor: theme.colors.primary, backgroundColor: theme.colors.primary }}
+                    >
+                      Pause
+                    </button>
+                    <button
+                      onClick={stopEarly}
+                      className="w-full rounded-xl border-2 py-4 text-2xl font-semibold"
+                      style={{ borderColor: theme.colors.primary, color: theme.colors.primary }}
+                    >
+                      Stop Early
+                    </button>
+                  </div>
+                )}
 
                 <button
                   onClick={startDistractionReset}
