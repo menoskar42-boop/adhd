@@ -1,0 +1,26 @@
+kind = "mobile"
+previewPath = "/mobile/"
+title = "NeuroPilot Mobile"
+version = "1.0.0"
+id = "artifacts/neuropilot-mobile"
+router = "expo-domain"
+
+[[integratedSkills]]
+name = "expo"
+version = "1.0.0"
+
+[[services]]
+name = "expo"
+paths = [ "/mobile/" ]
+localPort = 18432
+
+[services.development]
+run = "pnpm --filter @workspace/neuropilot-mobile run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/neuropilot-mobile", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/neuropilot-mobile", "run", "serve" ]
+
+[services.env]
+PORT = "18432"
+BASE_PATH = "/mobile/"

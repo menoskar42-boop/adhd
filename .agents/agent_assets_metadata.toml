@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "MwYtjH2TC9-wlv0Foe20i"
+uri = "file://artifacts/neuropilot-mobile/assets/images/icon.png"
+type = "image"
+title = "neuropilot app icon"
