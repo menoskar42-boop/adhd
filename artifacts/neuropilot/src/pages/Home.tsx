@@ -187,107 +187,13 @@ export default function Home() {
           <>
             <h1 className="text-4xl font-semibold">{task.title}</h1>
             <p className="text-6xl font-bold">{formatTime(secondsLeft)}</p>
-            <label className="block text-left text-lg font-semibold">
-              Session length (minutes)
-              <select
-                value={currentMinutes}
-                onChange={(e) => updateCurrentDuration(Number(e.target.value))}
-                className="mt-2 w-full rounded-xl border-2 px-4 py-3 text-xl outline-none"
-                style={{ borderColor: theme.colors.primary }}
-              >
-                {SESSION_OPTIONS.map((minutes) => (
-                  <option key={minutes} value={minutes}>
-                    {minutes} min
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            {showDonePrompt ? (
-              <div className="space-y-4">
-                <p className="text-3xl font-semibold">Done?</p>
-                <button
-                  onClick={completeSession}
-                  className="w-full rounded-xl py-4 text-2xl font-semibold"
-                  style={{ border: `2px solid ${theme.colors.primary}` }}
-                >
-                  Continue Next Session
-                </button>
-                <button
-                  onClick={finishTask}
-                  className="w-full rounded-xl py-4 text-2xl font-semibold"
-                  style={{ border: `2px solid ${theme.colors.accent}` }}
-                >
-                  Finish Task
-                </button>
-                <input
-                  value={nextTaskTitle}
-                  onChange={(e) => setNextTaskTitle(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && startNextTask()}
-                  placeholder="Next task"
-                  className="w-full rounded-xl border-2 px-4 py-4 text-xl outline-none"
-                  style={{ borderColor: theme.colors.primary }}
-                />
-                <button
-                  onClick={startNextTask}
-                  className="w-full rounded-xl py-4 text-2xl font-semibold text-white"
-                  style={{ backgroundColor: theme.colors.accent }}
-                >
-                  Start Next Task
-                </button>
-                <button
-                  onClick={switchTask}
-                  className="w-full rounded-xl py-4 text-xl font-semibold"
-                  style={{ border: `2px dashed ${theme.colors.text}` }}
-                >
-                  Change Task Manually
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {!isRunning ? (
-                  <button
-                    onClick={startTimer}
-                    className="w-full rounded-xl py-5 text-3xl font-semibold text-white"
-                    style={{ backgroundColor: theme.colors.primary }}
-                  >
-                    Start Now
-                  </button>
-                ) : (
-                  <button
-                    onClick={pauseTimer}
-                    className="w-full rounded-xl py-5 text-3xl font-semibold text-white"
-                    style={{ backgroundColor: theme.colors.primary }}
-                  >
-                    Pause
-                  </button>
-                )}
-
-                <button
-                  onClick={resetTimer}
-                  className="w-full rounded-xl py-4 text-2xl font-semibold"
-                  style={{ border: `2px solid ${theme.colors.primary}` }}
-                >
-                  Reset
-                </button>
-
-                <button
-                  onClick={stopEarly}
-                  className="w-full rounded-xl py-4 text-2xl font-semibold"
-                  style={{ border: `2px solid ${theme.colors.accent}` }}
-                >
-                  Stop Early
-                </button>
-
-                <button
-                  onClick={switchTask}
-                  className="w-full rounded-xl py-4 text-2xl font-semibold"
-                  style={{ border: `2px dashed ${theme.colors.text}` }}
-                >
-                  Change Task
-                </button>
-              </div>
-            )}
+            <button
+              onClick={startTimer}
+              className="w-full rounded-xl py-5 text-3xl font-semibold text-white"
+              style={{ backgroundColor: theme.colors.primary }}
+            >
+              Start
+            </button>
           </>
         )}
       </div>
