@@ -2,10 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { clearTask, getTask, setTask, Task } from "@/lib/storage";
 import { theme } from "@/lib/theme";
 
-const DEFAULT_MINUTES = 10;
+const DEFAULT_MINUTES = 3;
 const MAX_MINUTES = 25;
-const MIN_MINUTES = 5;
-const SESSION_OPTIONS = [5, 10, 15, 20, 25];
 
 function formatTime(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60)
@@ -18,7 +16,7 @@ function formatTime(totalSeconds: number): string {
 export default function Home() {
   const [taskTitle, setTaskTitle] = useState("");
   const [nextTaskTitle, setNextTaskTitle] = useState("");
-  const [taskDuration, setTaskDuration] = useState(DEFAULT_MINUTES);
+  const [duration, setDuration] = useState(3);
   const [task, setTaskState] = useState<Task | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(DEFAULT_MINUTES * 60);
   const [isRunning, setIsRunning] = useState(false);
@@ -62,7 +60,7 @@ export default function Home() {
   const createTask = (title: string): Task => ({
     title: title.trim(),
     sessions: [],
-    currentDuration: taskDuration,
+    currentDuration: duration,
   });
 
   const addTask = () => {
@@ -70,7 +68,7 @@ export default function Home() {
     const nextTask = createTask(taskTitle);
     saveTask(nextTask);
     setTaskTitle("");
-    setSecondsLeft(taskDuration * 60);
+    setSecondsLeft(duration * 60);
   };
 
   const startTimer = () => {
@@ -85,21 +83,12 @@ export default function Home() {
     setSecondsLeft(currentMinutes * 60);
   };
 
-  const updateCurrentDuration = (minutes: number) => {
-    if (!task) return;
-    const nextTask = { ...task, currentDuration: minutes };
-    saveTask(nextTask);
-    setSecondsLeft(minutes * 60);
-    setIsRunning(false);
-    setShowDonePrompt(false);
-  };
-
   const finishTask = () => {
     clearTask();
     setTaskState(null);
     setShowDonePrompt(false);
     setIsRunning(false);
-    setTaskDuration(DEFAULT_MINUTES);
+    setDuration(3);
     setNextTaskTitle("");
     setSecondsLeft(DEFAULT_MINUTES * 60);
   };
@@ -114,7 +103,7 @@ export default function Home() {
     saveTask(nextTask);
     setNextTaskTitle("");
     setShowDonePrompt(false);
-    setSecondsLeft(taskDuration * 60);
+    setSecondsLeft(duration * 60);
   };
 
   const stopEarly = () => {
@@ -162,25 +151,12 @@ export default function Home() {
               className="w-full rounded-xl border-2 px-4 py-4 text-2xl outline-none"
               style={{ borderColor: theme.colors.primary }}
             />
-            <label className="block text-left text-lg font-semibold">
-              Session length (minutes)
-              <input
-                type="range"
-                min={MIN_MINUTES}
-                max={MAX_MINUTES}
-                step={5}
-                value={taskDuration}
-                onChange={(e) => setTaskDuration(Number(e.target.value))}
-                className="mt-3 w-full"
-              />
-            </label>
-            <p className="text-xl font-semibold">{taskDuration} min</p>
             <button
               onClick={addTask}
               className="w-full rounded-xl py-4 text-2xl font-semibold text-white"
               style={{ backgroundColor: theme.colors.primary }}
             >
-              Add Task
+              Start Now
             </button>
           </>
         ) : (
