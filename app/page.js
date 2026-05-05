@@ -90,6 +90,13 @@ export default function Home() {
   };
 
 
+  const startTimer = () => {
+    setIsRunning(true);
+    setAutoStartCount(0);
+  };
+
+  const pauseTimer = () => setIsRunning(false);
+
   const stopEarly = () => {
     if (!task) return;
     const nextTask = {
@@ -198,10 +205,7 @@ export default function Home() {
 
                 {!isRunning ? (
                   <button
-                    onClick={() => {
-                      setIsRunning(true);
-                      setAutoStartCount(0);
-                    }}
+                    onClick={startTimer}
                     className="w-full rounded-xl border-2 py-6 text-4xl font-semibold text-white"
                     style={{ borderColor: theme.colors.primary, backgroundColor: theme.colors.primary }}
                   >
@@ -210,7 +214,7 @@ export default function Home() {
                 ) : (
                   <div className="space-y-4">
                     <button
-                      onClick={() => setIsRunning(false)}
+                      onClick={pauseTimer}
                       className="w-full rounded-xl border-2 py-6 text-4xl font-semibold text-white"
                       style={{ borderColor: theme.colors.primary, backgroundColor: theme.colors.primary }}
                     >
