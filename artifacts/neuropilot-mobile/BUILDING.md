@@ -6,18 +6,41 @@ version of the app you install once, then use like a normal Expo dev server.
 
 ## One-time setup (on your own machine)
 
+### 1. Link your Expo account project
+
+EAS builds require a `projectId` in `app.json` that ties the app to your Expo account.
+
+1. Go to [expo.dev](https://expo.dev) and create a new project (or open an existing one).
+2. Copy the **Project ID** — a UUID shown on the project's dashboard page
+   (e.g. `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`).
+3. Open `app.json` and replace the placeholder UUID with yours:
+   ```json
+   "extra": {
+     "eas": {
+       "projectId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+     }
+   }
+   ```
+   The current value (`00000000-0000-0000-0000-000000000000`) is a nil UUID
+   placeholder — swap it for the real UUID from your expo.dev dashboard.
+
+> Without a valid `projectId`, the first `eas build` run will prompt you
+> interactively and may create a mis-linked project on expo.dev.
+
+### 2. Install the CLI and log in
+
 ```bash
-# 1. Install the EAS CLI globally
+# Install the EAS CLI globally
 npm install -g eas-cli
 
-# 2. Log in to your Expo account (create one free at expo.dev if needed)
+# Log in to your Expo account (create one free at expo.dev if needed)
 eas login
 
-# 3. Build the dev client and install it on your device
-#    Android (APK — easiest, no provisioning needed):
+# Build the dev client and install it on your device
+#   Android (APK — easiest, no provisioning needed):
 eas build --profile development --platform android
 
-#    iOS (requires an Apple Developer account):
+#   iOS (requires an Apple Developer account):
 eas build --profile development --platform ios
 ```
 
