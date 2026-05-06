@@ -18,24 +18,25 @@ Notifications.setNotificationHandler({
   }),
 });
 
+interface GeofenceTaskData {
+  eventType: Location.GeofencingEventType;
+  region: Location.LocationRegion;
+}
+
 // Define the background task — must be called at module level (top of file)
-TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }: TaskManager.TaskManagerTaskBody<Location.LocationRegion[]>) => {
-  if (error) return;
-  // @ts-ignore — data shape from expo-location geofencing
-  const events = data?.eventType ? [data] : (data?.regions ?? []);
-  for (const event of events) {
-    if (event.eventType === Location.GeofencingEventType.Enter) {
-      const task = await getTask();
-      const title = task?.title ?? "مهمتك";
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: "NeuroPilot 📍",
-          body: `حان وقت مهمتك: ${title}`,
-          sound: true,
-        },
-        trigger: null, // fire immediately
-      });
-    }
+TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }: TaskManager.TaskManagerTaskBody<GeofenceTaskData>) => {
+  if (error || !data) return;
+  if (data.eventType === Location.GeofencingEventType.Enter) {
+    const task = await getTask();
+    const title = task?.title ?? "مهمتك";
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: "NeuroPilot 📍",
+        body: `حان وقت مهمتك: ${title}`,
+        sound: true,
+      },
+      trigger: null, // fire immediately
+    });
   }
 });
 

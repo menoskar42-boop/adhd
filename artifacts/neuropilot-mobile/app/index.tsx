@@ -1,5 +1,5 @@
 import * as Haptics from "expo-haptics";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -60,11 +60,12 @@ export default function Home() {
     loadPlaces();
   }, [loadPlaces]);
 
-  // Reload places when coming back from the Places screen
-  useEffect(() => {
-    const interval = setInterval(loadPlaces, 2000);
-    return () => clearInterval(interval);
-  }, [loadPlaces]);
+  // Reload places whenever this screen is focused (e.g., returning from Places modal)
+  useFocusEffect(
+    useCallback(() => {
+      loadPlaces();
+    }, [loadPlaces])
+  );
 
   useEffect(() => {
     if (!isRunning) {
