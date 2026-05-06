@@ -15,25 +15,24 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { savePlace } from "@/lib/places";
 
-// Lazy-load react-native-maps so Expo Go doesn't crash on missing native module
-let MapView: any = null;
-let Marker: any = null;
+// Type-only imports — purely compile-time, never run, so they don't trigger the
+// native module registration error in Expo Go.
+import type MapViewType from "react-native-maps";
+import type { MapPressEvent, Marker as MarkerType, Region } from "react-native-maps";
+
+// Runtime lazy-load: guarded so Expo Go doesn't crash on missing native module.
+let MapViewComponent: typeof MapViewType | null = null;
+let MarkerComponent: typeof MarkerType | null = null;
 let mapsAvailable = false;
+
 try {
-  const maps = require("react-native-maps");
-  MapView = maps.default;
-  Marker = maps.Marker;
+  const maps = require("react-native-maps") as typeof import("react-native-maps");
+  MapViewComponent = maps.default;
+  MarkerComponent = maps.Marker as unknown as typeof MarkerType;
   mapsAvailable = true;
 } catch {
-  // Native module not registered — running in Expo Go
+  // Native module RNMapsAirModule not registered — running in Expo Go
 }
-
-type Region = {
-  latitude: number;
-  longitude: number;
-  latitudeDelta: number;
-  longitudeDelta: number;
-};
 
 const DEFAULT_REGION: Region = {
   latitude: 30.0444,
@@ -45,14 +44,21 @@ const DEFAULT_REGION: Region = {
 function UnavailableFallback() {
   const insets = useSafeAreaInsets();
   return (
-    <View style={[styles.fallback, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}>
+    <View
+      style={[
+        styles.fallback,
+        { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 },
+      ]}
+    >
       <Text style={styles.fallbackIcon}>🗺️</Text>
       <Text style={styles.fallbackTitle}>الخريطة مش متاحة</Text>
       <Text style={styles.fallbackBody}>
         ميزة اختيار المكان من الخريطة بتحتاج{"\n"}
-        <Text style={styles.fallbackBold}>Expo Dev Client</Text> أو نسخة مثبّتة من التطبيق.{"\n\n"}
+        <Text style={styles.fallbackBold}>Expo Dev Client</Text> أو نسخة مثبّتة من التطبيق.
+        {"\n\n"}
         في الوقت الحالي، استخدم زر{"\n"}
-        <Text style={styles.fallbackBold}>"📍 موقعي الحالي"</Text>{"\n"}
+        <Text style={styles.fallbackBold}>"📍 موقعي الحالي"</Text>
+        {"\n"}
         عشان تحفظ مكانك.
       </Text>
       <Pressable
@@ -73,11 +79,14 @@ export default function MapPickerScreen() {
   const [nameInput, setNameInput] = useState(params.initialName ?? "");
   const [saving, setSaving] = useState(false);
 
-  if (!mapsAvailable) {
+  if (!mapsAvailable || !MapViewComponent || !MarkerComponent) {
     return <UnavailableFallback />;
   }
 
-  const handleMapPress = (e: { nativeEvent: { coordinate: { latitude: number; longitude: number } } }) => {
+  const MapViewEl = MapViewComponent;
+  const MarkerEl = MarkerComponent;
+
+  const handleMapPress = (e: MapPressEvent) => {
     const { latitude, longitude } = e.nativeEvent.coordinate;
     setPin({ latitude, longitude });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -115,20 +124,15 @@ export default function MapPickerScreen() {
   return (
     <View style={styles.root}>
       {/* Map */}
-      <MapView
+      <MapViewEl
         style={styles.map}
         initialRegion={DEFAULT_REGION}
         onPress={handleMapPress}
         showsUserLocation
         showsMyLocationButton
       >
-        {pin && (
-          <Marker
-            coordinate={pin}
-            pinColor="#4A6FA5"
-          />
-        )}
-      </MapView>
+        {pin && <MarkerEl coordinate={pin} pinColor="#4A6FA5" />}
+      </MapViewEl>
 
       {/* Overlay hint */}
       {!pin && (
