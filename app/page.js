@@ -92,7 +92,6 @@ export default function Home() {
 
   const startTimer = () => {
     setIsRunning(true);
-    setAutoStartCount(0);
   };
 
   const pauseTimer = () => setIsRunning(false);
