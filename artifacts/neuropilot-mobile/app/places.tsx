@@ -1,7 +1,8 @@
 import * as Haptics from "expo-haptics";
 import * as Location from "expo-location";
-import { router } from "expo-router";
-import React, { useEffect, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import React, { useCallback, useState } from "react";
+
 import {
   ActivityIndicator,
   Alert,
@@ -22,9 +23,11 @@ export default function PlacesScreen() {
   const [nameInput, setNameInput] = useState("");
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    getPlaces().then(setPlaces);
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      getPlaces().then(setPlaces);
+    }, [])
+  );
 
   const handleSaveHere = async () => {
     const name = nameInput.trim();
@@ -107,20 +110,38 @@ export default function PlacesScreen() {
           returnKeyType="done"
           onSubmitEditing={handleSaveHere}
         />
-        <Pressable
-          onPress={handleSaveHere}
-          disabled={saving}
-          style={({ pressed }) => [
-            styles.saveBtn,
-            { opacity: pressed || saving ? 0.7 : 1 },
-          ]}
-        >
-          {saving ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.saveBtnText}>📍 احفظ موقعي الحالي</Text>
-          )}
-        </Pressable>
+        <View style={styles.btnRow}>
+          <Pressable
+            onPress={handleSaveHere}
+            disabled={saving}
+            style={({ pressed }) => [
+              styles.saveBtn,
+              styles.btnFlex,
+              { opacity: pressed || saving ? 0.7 : 1 },
+            ]}
+          >
+            {saving ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.saveBtnText}>📍 موقعي الحالي</Text>
+            )}
+          </Pressable>
+          <Pressable
+            onPress={() =>
+              router.push({
+                pathname: "/map-picker",
+                params: nameInput.trim() ? { initialName: nameInput.trim() } : {},
+              })
+            }
+            style={({ pressed }) => [
+              styles.mapBtn,
+              styles.btnFlex,
+              { opacity: pressed ? 0.7 : 1 },
+            ]}
+          >
+            <Text style={styles.mapBtnText}>🗺️ اختار من الخريطة</Text>
+          </Pressable>
+        </View>
       </View>
 
       {/* Saved places list */}
@@ -198,6 +219,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     textAlign: "right",
   },
+  btnRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  btnFlex: {
+    flex: 1,
+  },
   saveBtn: {
     backgroundColor: "#4A6FA5",
     borderRadius: 14,
@@ -208,8 +236,23 @@ const styles = StyleSheet.create({
   },
   saveBtnText: {
     color: "#fff",
-    fontSize: 17,
+    fontSize: 15,
     fontFamily: "Inter_600SemiBold",
+    textAlign: "center",
+  },
+  mapBtn: {
+    backgroundColor: "#7FB069",
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 54,
+  },
+  mapBtnText: {
+    color: "#fff",
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
+    textAlign: "center",
   },
   empty: {
     flex: 1,
