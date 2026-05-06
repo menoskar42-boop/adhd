@@ -58,6 +58,7 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
+    "expo-dev-client": "^55.0.32",
     "expo-keep-awake": "^55.0.7",
     "react-native-maps": "^1.27.2"
   }
