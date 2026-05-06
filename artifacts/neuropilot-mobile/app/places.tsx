@@ -17,6 +17,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { deletePlace, getPlaces, Place, savePlace } from "@/lib/places";
 
+// Check if react-native-maps native module is available (not in Expo Go)
+let mapsAvailable = false;
+try {
+  require("react-native-maps");
+  mapsAvailable = true;
+} catch {
+  // Running in Expo Go — map picker not available
+}
+
 export default function PlacesScreen() {
   const insets = useSafeAreaInsets();
   const [places, setPlaces] = useState<Place[]>([]);
@@ -127,15 +136,23 @@ export default function PlacesScreen() {
             )}
           </Pressable>
           <Pressable
-            onPress={() =>
+            onPress={() => {
+              if (!mapsAvailable) {
+                Alert.alert(
+                  "الخريطة مش متاحة",
+                  "ميزة اختيار المكان من الخريطة بتحتاج Expo Dev Client أو نسخة مثبّتة من التطبيق.\n\nاستخدم \"📍 موقعي الحالي\" عشان تحفظ مكانك."
+                );
+                return;
+              }
               router.push({
                 pathname: "/map-picker",
                 params: nameInput.trim() ? { initialName: nameInput.trim() } : {},
-              })
-            }
+              });
+            }}
             style={({ pressed }) => [
               styles.mapBtn,
               styles.btnFlex,
+              !mapsAvailable && styles.mapBtnDisabled,
               { opacity: pressed ? 0.7 : 1 },
             ]}
           >
@@ -253,6 +270,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: "Inter_600SemiBold",
     textAlign: "center",
+  },
+  mapBtnDisabled: {
+    backgroundColor: "#A0AFAA",
   },
   empty: {
     flex: 1,

@@ -11,10 +11,29 @@ import {
   TextInput,
   View,
 } from "react-native";
-import MapView, { Marker, MapPressEvent, Region } from "react-native-maps";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { savePlace } from "@/lib/places";
+
+// Lazy-load react-native-maps so Expo Go doesn't crash on missing native module
+let MapView: any = null;
+let Marker: any = null;
+let mapsAvailable = false;
+try {
+  const maps = require("react-native-maps");
+  MapView = maps.default;
+  Marker = maps.Marker;
+  mapsAvailable = true;
+} catch {
+  // Native module not registered — running in Expo Go
+}
+
+type Region = {
+  latitude: number;
+  longitude: number;
+  latitudeDelta: number;
+  longitudeDelta: number;
+};
 
 const DEFAULT_REGION: Region = {
   latitude: 30.0444,
@@ -22,6 +41,29 @@ const DEFAULT_REGION: Region = {
   latitudeDelta: 0.05,
   longitudeDelta: 0.05,
 };
+
+function UnavailableFallback() {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={[styles.fallback, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}>
+      <Text style={styles.fallbackIcon}>🗺️</Text>
+      <Text style={styles.fallbackTitle}>الخريطة مش متاحة</Text>
+      <Text style={styles.fallbackBody}>
+        ميزة اختيار المكان من الخريطة بتحتاج{"\n"}
+        <Text style={styles.fallbackBold}>Expo Dev Client</Text> أو نسخة مثبّتة من التطبيق.{"\n\n"}
+        في الوقت الحالي، استخدم زر{"\n"}
+        <Text style={styles.fallbackBold}>"📍 موقعي الحالي"</Text>{"\n"}
+        عشان تحفظ مكانك.
+      </Text>
+      <Pressable
+        onPress={() => router.back()}
+        style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.7 : 1 }]}
+      >
+        <Text style={styles.backBtnText}>← رجوع</Text>
+      </Pressable>
+    </View>
+  );
+}
 
 export default function MapPickerScreen() {
   const insets = useSafeAreaInsets();
@@ -31,7 +73,11 @@ export default function MapPickerScreen() {
   const [nameInput, setNameInput] = useState(params.initialName ?? "");
   const [saving, setSaving] = useState(false);
 
-  const handleMapPress = (e: MapPressEvent) => {
+  if (!mapsAvailable) {
+    return <UnavailableFallback />;
+  }
+
+  const handleMapPress = (e: { nativeEvent: { coordinate: { latitude: number; longitude: number } } }) => {
     const { latitude, longitude } = e.nativeEvent.coordinate;
     setPin({ latitude, longitude });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -145,6 +191,48 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: "#F5F7F6",
+  },
+  fallback: {
+    flex: 1,
+    backgroundColor: "#F5F7F6",
+    paddingHorizontal: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 16,
+  },
+  fallbackIcon: {
+    fontSize: 56,
+    marginBottom: 4,
+  },
+  fallbackTitle: {
+    fontSize: 22,
+    fontFamily: "Inter_700Bold",
+    color: "#2E2E2E",
+    textAlign: "center",
+  },
+  fallbackBody: {
+    fontSize: 16,
+    fontFamily: "Inter_400Regular",
+    color: "#6B7E80",
+    textAlign: "center",
+    lineHeight: 26,
+  },
+  fallbackBold: {
+    fontFamily: "Inter_600SemiBold",
+    color: "#4A6FA5",
+  },
+  backBtn: {
+    marginTop: 8,
+    backgroundColor: "#4A6FA5",
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    alignItems: "center",
+  },
+  backBtnText: {
+    color: "#fff",
+    fontSize: 16,
+    fontFamily: "Inter_600SemiBold",
   },
   map: {
     flex: 1,
