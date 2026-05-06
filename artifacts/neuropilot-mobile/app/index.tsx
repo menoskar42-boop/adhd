@@ -343,6 +343,18 @@ export default function Home() {
                         <Text style={[styles.chipText, active && styles.chipTextActive]}>
                           📍 {place.name}
                         </Text>
+                        {active && (
+                          <Pressable
+                            onPress={() => {
+                              Haptics.selectionAsync();
+                              setSelectedPlaceId(null);
+                            }}
+                            hitSlop={8}
+                            style={styles.chipClear}
+                          >
+                            <Text style={styles.chipClearText}>✕</Text>
+                          </Pressable>
+                        )}
                       </Pressable>
                     );
                   })}
@@ -394,21 +406,39 @@ export default function Home() {
                     <Text style={styles.mapPinSub}>تنبيه عند وصولك لهذا المكان</Text>
                   </View>
                 </View>
-                {places.length > 1 && (
+                <View style={styles.mapPinActions}>
+                  {places.length > 1 && (
+                    <Pressable
+                      onPress={() => {
+                        Haptics.selectionAsync();
+                        setShowChangePlaceModal(true);
+                      }}
+                      style={({ pressed }) => [
+                        styles.changePlaceBtn,
+                        styles.changePlaceBtnLeft,
+                        { opacity: pressed ? 0.7 : 1 },
+                      ]}
+                      testID="change-place-button"
+                    >
+                      <Text style={styles.changePlaceBtnText}>غيّر المكان</Text>
+                    </Pressable>
+                  )}
                   <Pressable
                     onPress={() => {
-                      Haptics.selectionAsync();
-                      setShowChangePlaceModal(true);
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      changePlace(null);
                     }}
                     style={({ pressed }) => [
                       styles.changePlaceBtn,
+                      styles.removePlaceBtn,
+                      places.length > 1 && styles.removePlaceBtnBorder,
                       { opacity: pressed ? 0.7 : 1 },
                     ]}
-                    testID="change-place-button"
+                    testID="remove-place-button"
                   >
-                    <Text style={styles.changePlaceBtnText}>غيّر المكان</Text>
+                    <Text style={styles.removePlaceBtnText}>✕  إزالة المكان</Text>
                   </Pressable>
-                )}
+                </View>
               </View>
             )}
 
@@ -636,6 +666,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     backgroundColor: "transparent",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   chipActive: {
     backgroundColor: "#4A6FA5",
@@ -647,6 +680,20 @@ const styles = StyleSheet.create({
   },
   chipTextActive: {
     color: "#fff",
+  },
+  chipClear: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "rgba(255,255,255,0.3)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chipClearText: {
+    fontSize: 10,
+    color: "#fff",
+    fontFamily: "Inter_700Bold",
+    lineHeight: 14,
   },
   mapPinCard: {
     width: "100%",
@@ -718,17 +765,36 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     color: "#4A8C6A",
   },
-  changePlaceBtn: {
+  mapPinActions: {
+    flexDirection: "row",
     borderTopWidth: 1,
     borderTopColor: "#D4ECCC",
+  },
+  changePlaceBtn: {
+    flex: 1,
     backgroundColor: "#F4FBF2",
     paddingVertical: 10,
     alignItems: "center",
+  },
+  changePlaceBtnLeft: {
+    borderRightWidth: 1,
+    borderRightColor: "#D4ECCC",
   },
   changePlaceBtnText: {
     fontSize: 14,
     fontFamily: "Inter_600SemiBold",
     color: "#7FB069",
+  },
+  removePlaceBtn: {
+    backgroundColor: "#FFF6F6",
+  },
+  removePlaceBtnBorder: {
+    borderLeftWidth: 0,
+  },
+  removePlaceBtnText: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: "#C0392B",
   },
   modalBackdrop: {
     flex: 1,
