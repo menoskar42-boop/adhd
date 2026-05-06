@@ -24,6 +24,7 @@ export default function Home() {
   const [showDonePrompt, setShowDonePrompt] = useState(false);
   const [autoStartCount, setAutoStartCount] = useState(0);
   const reminderTimeoutsRef = useRef([]);
+  const isRunningRef = useRef(false);
 
   const clearReminderTimeouts = () => {
     reminderTimeoutsRef.current.forEach((id) => clearTimeout(id));
@@ -41,7 +42,7 @@ export default function Home() {
     const reminderDelays = [2, 7, 17];
     reminderTimeoutsRef.current = reminderDelays.map((delayMinutes) =>
       setTimeout(() => {
-        if (!isRunning) {
+        if (!isRunningRef.current) {
           sendGentleReminder();
         }
       }, delayMinutes * 60 * 1000)
@@ -59,6 +60,7 @@ export default function Home() {
   useEffect(() => () => clearReminderTimeouts(), []);
 
   useEffect(() => {
+    isRunningRef.current = isRunning;
     if (!isRunning) return;
     const id = setInterval(() => {
       setTimeLeft((prev) => {
