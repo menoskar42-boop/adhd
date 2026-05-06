@@ -2,7 +2,7 @@ import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import * as TaskManager from "expo-task-manager";
 
-import { getTask } from "./storage";
+import { clearPendingTask, getPendingTask, getTask, setNextTask, setTask } from "./storage";
 
 export const GEOFENCE_TASK = "neuropilot-geofence";
 const RADIUS_METERS = 100;
@@ -27,16 +27,48 @@ interface GeofenceTaskData {
 TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }: TaskManager.TaskManagerTaskBody<GeofenceTaskData>) => {
   if (error || !data) return;
   if (data.eventType === Location.GeofencingEventType.Enter) {
-    const task = await getTask();
-    const title = task?.title ?? "مهمتك";
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: "NeuroPilot 📍",
-        body: `حان وقت مهمتك: ${title}`,
-        sound: true,
-      },
-      trigger: null, // fire immediately
-    });
+    const [pendingTask, activeTask] = await Promise.all([getPendingTask(), getTask()]);
+
+    if (!pendingTask) {
+      // No pending task — fire arrival notification for the active task if one exists
+      if (activeTask) {
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: "NeuroPilot 📍",
+            body: `وصلت! حان وقت مهمتك: ${activeTask.title}`,
+            sound: true,
+          },
+          trigger: null,
+        });
+      }
+      return;
+    }
+
+    if (!activeTask) {
+      // No active task — promote pending to active
+      await setTask(pendingTask);
+      await clearPendingTask();
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: "NeuroPilot 📍",
+          body: `حان وقت مهمتك: ${pendingTask.title}`,
+          sound: true,
+        },
+        trigger: null,
+      });
+    } else {
+      // Active task running — queue pending as next task
+      await setNextTask(pendingTask);
+      await clearPendingTask();
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: "NeuroPilot 📍",
+          body: `وصلت! مهمتك الجاية جاهزة: ${pendingTask.title}`,
+          sound: true,
+        },
+        trigger: null,
+      });
+    }
   }
 });
 

@@ -4,6 +4,8 @@ import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
+  AppState,
+  AppStateStatus,
   Keyboard,
   Linking,
   Modal,
@@ -20,10 +22,21 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { isGeofenceActive, requestPermissions, startGeofence, stopGeofence } from "@/lib/geofence";
 import { getPlaces, Place } from "@/lib/places";
-import { clearTask, getTask, setTask, Task } from "@/lib/storage";
+import {
+  clearNextTask,
+  clearPendingTask,
+  clearTask,
+  getNextTask,
+  getPendingTask,
+  getTask,
+  setPendingTask,
+  setTask,
+  Task,
+} from "@/lib/storage";
 
 const DEFAULT_MINUTES = 10;
 const MAX_MINUTES = 25;
+const POLL_INTERVAL_MS = 2000;
 
 function fmt(s: number): string {
   return `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60)
@@ -36,6 +49,8 @@ export default function Home() {
 
   const [draft, setDraft] = useState("");
   const [task, setTaskState] = useState<Task | null>(null);
+  const [pendingTask, setPendingTaskState] = useState<Task | null>(null);
+  const [nextTask, setNextTaskState] = useState<Task | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(DEFAULT_MINUTES * 60);
   const [isRunning, setIsRunning] = useState(false);
   const [showDonePrompt, setShowDonePrompt] = useState(false);
@@ -47,6 +62,7 @@ export default function Home() {
   const [geofenceActive, setGeofenceActive] = useState(false);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
   const botPad = Platform.OS === "web" ? Math.max(insets.bottom, 34) : insets.bottom;
@@ -55,22 +71,52 @@ export default function Home() {
     setPlaces(await getPlaces());
   }, []);
 
-  useEffect(() => {
-    getTask().then((saved) => {
-      if (saved) {
-        setTaskState(saved);
+  // Read all storage state at once
+  const refreshState = useCallback(async () => {
+    const [saved, pending, next, gfActive] = await Promise.all([
+      getTask(),
+      getPendingTask(),
+      getNextTask(),
+      isGeofenceActive(),
+    ]);
+    setTaskState((prev) => {
+      if (!prev && saved) {
         setSecondsLeft((saved.currentDuration ?? DEFAULT_MINUTES) * 60);
       }
+      return saved;
     });
+    setPendingTaskState(pending);
+    setNextTaskState(next);
+    setGeofenceActive(gfActive);
+  }, []);
+
+  useEffect(() => {
+    refreshState();
     loadPlaces();
-    isGeofenceActive().then(setGeofenceActive);
-  }, [loadPlaces]);
+
+    // Poll to pick up background geofence state changes
+    pollRef.current = setInterval(refreshState, POLL_INTERVAL_MS);
+
+    // Also refresh when app comes back to foreground
+    const sub = AppState.addEventListener("change", (state: AppStateStatus) => {
+      if (state === "active") {
+        refreshState();
+        loadPlaces();
+      }
+    });
+
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      sub.remove();
+    };
+  }, [refreshState, loadPlaces]);
 
   // Reload places whenever this screen is focused (e.g., returning from Places modal)
   useFocusEffect(
     useCallback(() => {
       loadPlaces();
-    }, [loadPlaces])
+      refreshState();
+    }, [loadPlaces, refreshState])
   );
 
   useEffect(() => {
@@ -109,19 +155,18 @@ export default function Home() {
     if (!draft.trim()) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-    const next: Task = {
+    const newTask: Task = {
       title: draft.trim(),
       sessions: [],
       currentDuration: DEFAULT_MINUTES,
       locationId: selectedPlaceId ?? undefined,
     };
-    await save(next);
-    setSecondsLeft(DEFAULT_MINUTES * 60);
+
     setDraft("");
     Keyboard.dismiss();
 
-    // Register geofence if a place was selected
     if (selectedPlaceId) {
+      // Location-linked task → save as pending and wait for arrival
       const place = places.find((p) => p.id === selectedPlaceId);
       if (place) {
         await new Promise<void>((resolve) => {
@@ -134,9 +179,13 @@ export default function Home() {
                 onPress: async () => {
                   const granted = await requestPermissions();
                   if (!granted) {
+                    // Permission denied — save as active task without geofence so work isn't lost
+                    const taskWithoutLocation: Task = { ...newTask, locationId: undefined };
+                    await save(taskWithoutLocation);
+                    setSecondsLeft(DEFAULT_MINUTES * 60);
                     Alert.alert(
                       "تصريح مش مكتمل",
-                      "عشان يشتغل تنبيه الموقع، افتح الإعدادات وغيّر صلاحية الموقع لـ «دايماً».",
+                      "اتضافت المهمة بدون تنبيه موقع. عشان يشتغل التنبيه، افتح الإعدادات وغيّر صلاحية الموقع لـ «دايماً».",
                       [
                         { text: "مش دلوقتي", style: "cancel" },
                         {
@@ -145,11 +194,15 @@ export default function Home() {
                         },
                       ]
                     );
+                    resolve();
                   } else {
+                    // Save as pending (not active) and start geofence
+                    await setPendingTask(newTask);
+                    setPendingTaskState(newTask);
                     await startGeofence(place.latitude, place.longitude);
+                    setGeofenceActive(await isGeofenceActive());
+                    resolve();
                   }
-                  setGeofenceActive(await isGeofenceActive());
-                  resolve();
                 },
               },
               {
@@ -161,9 +214,21 @@ export default function Home() {
           );
         });
       }
+    } else {
+      // No location — activate immediately as usual
+      await save(newTask);
+      setSecondsLeft(DEFAULT_MINUTES * 60);
     }
 
     setSelectedPlaceId(null);
+  };
+
+  const cancelPendingTask = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    await stopGeofence();
+    await clearPendingTask();
+    setPendingTaskState(null);
+    setGeofenceActive(false);
   };
 
   const startTimer = () => {
@@ -219,6 +284,33 @@ export default function Home() {
     setSecondsLeft(DEFAULT_MINUTES * 60);
     setIsRunning(false);
     setGeofenceActive(false);
+  };
+
+  // Activate the queued next task, replacing the current one
+  const activateNextTask = async () => {
+    if (!nextTask) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    await stopGeofence();
+    await clearTask();
+    await clearNextTask();
+
+    const activating = nextTask;
+    setNextTaskState(null);
+    setIsRunning(false);
+    setShowDonePrompt(false);
+
+    await setTask(activating);
+    setTaskState(activating);
+    setSecondsLeft((activating.currentDuration ?? DEFAULT_MINUTES) * 60);
+
+    // If the next task has a location, restart the geofence for it
+    if (activating.locationId) {
+      const place = places.find((p) => p.id === activating.locationId);
+      if (place) {
+        await startGeofence(place.latitude, place.longitude);
+        setGeofenceActive(await isGeofenceActive());
+      }
+    }
   };
 
   const changeTask = () => {
@@ -278,6 +370,11 @@ export default function Home() {
     ? places.find((p) => p.id === task.locationId)
     : null;
 
+  // Which place is linked to the pending task
+  const pendingPlace = pendingTask?.locationId
+    ? places.find((p) => p.id === pendingTask.locationId)
+    : null;
+
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
       <View
@@ -286,7 +383,44 @@ export default function Home() {
           { backgroundColor: bg, paddingTop: topPad, paddingBottom: botPad },
         ]}
       >
-        {!task ? (
+        {/* ── WAITING STATE: pending task, no active task ── */}
+        {!task && pendingTask ? (
+          <View style={styles.center}>
+            <View style={styles.headerRow}>
+              <Text style={styles.logo} testID="logo">
+                NeuroPilot
+              </Text>
+            </View>
+
+            <View style={styles.waitingCard} testID="waiting-screen">
+              <Text style={styles.waitingEmoji}>📍</Text>
+              <Text style={styles.waitingTitle}>{pendingTask.title}</Text>
+              <Text style={styles.waitingBody}>
+                ستبدأ مهمتك لما توصل{pendingPlace ? ` "${pendingPlace.name}"` : " للمكان"}
+              </Text>
+              {geofenceActive && (
+                <View style={styles.waitingBadge}>
+                  <View style={styles.geofenceDot} />
+                  <Text style={styles.waitingBadgeText}>التنبيه نشط</Text>
+                </View>
+              )}
+            </View>
+
+            <Pressable
+              testID="cancel-pending-button"
+              onPress={cancelPendingTask}
+              style={({ pressed }) => [
+                styles.btn,
+                styles.btnOutlineNeutral,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <Text style={styles.btnTextNeutral}>إلغاء وتغيير المهمة</Text>
+            </Pressable>
+          </View>
+
+        ) : !task ? (
+          /* ── EMPTY STATE: no task yet ── */
           <View style={styles.center}>
             {/* Header row: logo + places button */}
             <View style={styles.headerRow}>
@@ -374,7 +508,9 @@ export default function Home() {
               <Text style={styles.btnTextWhite}>Add Task</Text>
             </Pressable>
           </View>
+
         ) : (
+          /* ── ACTIVE TASK STATE ── */
           <View style={styles.center}>
             <Text style={styles.taskTitle} testID="task-title" numberOfLines={2}>
               {task.title}
@@ -445,6 +581,29 @@ export default function Home() {
             <Text style={styles.clock} testID="timer-display">
               {fmt(secondsLeft)}
             </Text>
+
+            {/* Next task banner */}
+            {nextTask && (
+              <Pressable
+                testID="next-task-button"
+                onPress={activateNextTask}
+                style={({ pressed }) => [
+                  styles.nextTaskBanner,
+                  { opacity: pressed ? 0.85 : 1 },
+                ]}
+              >
+                <View style={styles.nextTaskInner}>
+                  <View style={styles.nextTaskDot} />
+                  <View style={styles.nextTaskText}>
+                    <Text style={styles.nextTaskLabel}>المهمة التالية</Text>
+                    <Text style={styles.nextTaskName} numberOfLines={1}>
+                      {nextTask.title}
+                    </Text>
+                  </View>
+                  <Text style={styles.nextTaskArrow}>←</Text>
+                </View>
+              </Pressable>
+            )}
 
             {showDonePrompt ? (
               <View style={styles.stack} testID="done-prompt">
@@ -541,60 +700,61 @@ export default function Home() {
             )}
           </View>
         )}
-      {/* Change Place Modal */}
-      <Modal
-        visible={showChangePlaceModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowChangePlaceModal(false)}
-      >
-        <Pressable
-          style={styles.modalBackdrop}
-          onPress={() => setShowChangePlaceModal(false)}
+
+        {/* Change Place Modal */}
+        <Modal
+          visible={showChangePlaceModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowChangePlaceModal(false)}
         >
-          <Pressable style={styles.modalSheet} onPress={() => {}}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>اختار مكان تاني</Text>
-            <Text style={styles.modalSubtitle}>
-              هيوقف التنبيه الحالي ويبدأ تنبيه للمكان الجديد
-            </Text>
-            <ScrollView
-              style={styles.modalList}
-              showsVerticalScrollIndicator={false}
-            >
-              {places
-                .filter((p) => p.id !== task?.locationId)
-                .map((place) => (
-                  <Pressable
-                    key={place.id}
-                    onPress={() => changePlace(place.id)}
-                    style={({ pressed }) => [
-                      styles.modalPlaceRow,
-                      { opacity: pressed ? 0.7 : 1 },
-                    ]}
-                  >
-                    <Text style={styles.modalPlacePin}>📍</Text>
-                    <View style={styles.modalPlaceInfo}>
-                      <Text style={styles.modalPlaceName}>{place.name}</Text>
-                      <Text style={styles.modalPlaceCoords}>
-                        {place.latitude.toFixed(4)}°, {place.longitude.toFixed(4)}°
-                      </Text>
-                    </View>
-                  </Pressable>
-                ))}
-              <Pressable
-                onPress={() => changePlace(null)}
-                style={({ pressed }) => [
-                  styles.modalRemoveRow,
-                  { opacity: pressed ? 0.7 : 1 },
-                ]}
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => setShowChangePlaceModal(false)}
+          >
+            <Pressable style={styles.modalSheet} onPress={() => {}}>
+              <View style={styles.modalHandle} />
+              <Text style={styles.modalTitle}>اختار مكان تاني</Text>
+              <Text style={styles.modalSubtitle}>
+                هيوقف التنبيه الحالي ويبدأ تنبيه للمكان الجديد
+              </Text>
+              <ScrollView
+                style={styles.modalList}
+                showsVerticalScrollIndicator={false}
               >
-                <Text style={styles.modalRemoveText}>✕  إلغاء ربط المكان</Text>
-              </Pressable>
-            </ScrollView>
+                {places
+                  .filter((p) => p.id !== task?.locationId)
+                  .map((place) => (
+                    <Pressable
+                      key={place.id}
+                      onPress={() => changePlace(place.id)}
+                      style={({ pressed }) => [
+                        styles.modalPlaceRow,
+                        { opacity: pressed ? 0.7 : 1 },
+                      ]}
+                    >
+                      <Text style={styles.modalPlacePin}>📍</Text>
+                      <View style={styles.modalPlaceInfo}>
+                        <Text style={styles.modalPlaceName}>{place.name}</Text>
+                        <Text style={styles.modalPlaceCoords}>
+                          {place.latitude.toFixed(4)}°, {place.longitude.toFixed(4)}°
+                        </Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                <Pressable
+                  onPress={() => changePlace(null)}
+                  style={({ pressed }) => [
+                    styles.modalRemoveRow,
+                    { opacity: pressed ? 0.7 : 1 },
+                  ]}
+                >
+                  <Text style={styles.modalRemoveText}>✕  إلغاء ربط المكان</Text>
+                </Pressable>
+              </ScrollView>
+            </Pressable>
           </Pressable>
-        </Pressable>
-      </Modal>
+        </Modal>
       </View>
     </TouchableWithoutFeedback>
   );
@@ -695,6 +855,92 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     lineHeight: 14,
   },
+  // Waiting screen
+  waitingCard: {
+    width: "100%",
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: "#4A6FA5",
+    padding: 28,
+    alignItems: "center",
+    gap: 12,
+  },
+  waitingEmoji: {
+    fontSize: 48,
+  },
+  waitingTitle: {
+    fontSize: 22,
+    fontFamily: "Inter_700Bold",
+    color: "#2E2E2E",
+    textAlign: "center",
+  },
+  waitingBody: {
+    fontSize: 15,
+    fontFamily: "Inter_400Regular",
+    color: "#4A6FA5",
+    textAlign: "center",
+    lineHeight: 22,
+  },
+  waitingBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#E8F4E4",
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    marginTop: 4,
+  },
+  waitingBadgeText: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+    color: "#2E6B4A",
+  },
+  // Next task banner
+  nextTaskBanner: {
+    width: "100%",
+    backgroundColor: "#FFF8E6",
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: "#F0C040",
+    overflow: "hidden",
+  },
+  nextTaskInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 10,
+  },
+  nextTaskDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#E6A800",
+  },
+  nextTaskText: {
+    flex: 1,
+    gap: 2,
+  },
+  nextTaskLabel: {
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
+    color: "#8A6400",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  nextTaskName: {
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
+    color: "#2E2E2E",
+  },
+  nextTaskArrow: {
+    fontSize: 18,
+    color: "#E6A800",
+    fontFamily: "Inter_700Bold",
+  },
+  // Existing styles
   mapPinCard: {
     width: "100%",
     backgroundColor: "#fff",
