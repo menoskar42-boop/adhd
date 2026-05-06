@@ -1,8 +1,17 @@
+import Constants from "expo-constants";
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import * as TaskManager from "expo-task-manager";
 
 import { clearPendingTask, getPendingTask, getTask, setNextTask, setTask } from "./storage";
+
+/**
+ * Returns true when the app is running inside Expo Go (storeClient).
+ * Geofencing is not supported in Expo Go — use this to gate related code.
+ */
+export function isExpoGo(): boolean {
+  return Constants.executionEnvironment === "storeClient";
+}
 
 export const GEOFENCE_TASK = "neuropilot-geofence";
 const RADIUS_METERS = 100;

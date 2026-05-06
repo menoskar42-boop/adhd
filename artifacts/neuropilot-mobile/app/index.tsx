@@ -20,7 +20,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { isGeofenceActive, PermissionDeniedReason, requestPermissions, startGeofence, stopGeofence } from "@/lib/geofence";
+import { isExpoGo, isGeofenceActive, PermissionDeniedReason, requestPermissions, startGeofence, stopGeofence } from "@/lib/geofence";
 import { getPlaces, Place } from "@/lib/places";
 import {
   clearNextTask,
@@ -182,51 +182,70 @@ export default function Home() {
       // Location-linked task → save as pending and wait for arrival
       const place = places.find((p) => p.id === selectedPlaceId);
       if (place) {
-        await new Promise<void>((resolve) => {
+        // Expo Go does not support geofencing — inform the user and skip the flow
+        if (isExpoGo()) {
           Alert.alert(
-            "تنبيه الموقع",
-            `عشان نبعتلك تنبيه لما توصل "${place.name}"، التطبيق محتاج:\n\n• تصريح الإشعارات\n• تصريح الموقع "دايماً" (مش بس وانت شغّال التطبيق)\n\nدلوقتي هتظهرلك رسايل من الجهاز عشان توافق.`,
-            [
-              {
-                text: "تمام، وافق",
-                onPress: async () => {
-                  const { granted, reason } = await requestPermissions();
-                  if (!granted) {
-                    // Permission denied — save as active task without geofence so work isn't lost
-                    const taskWithoutLocation: Task = { ...newTask, locationId: undefined };
-                    await save(taskWithoutLocation);
-                    setSecondsLeft(DEFAULT_MINUTES * 60);
-                    const { title, message } = permissionDeniedAlert(reason);
-                    Alert.alert(
-                      title,
-                      `اتضافت المهمة بدون تنبيه موقع. ${message}`,
-                      [
-                        { text: "مش دلوقتي", style: "cancel" },
-                        {
-                          text: "افتح الإعدادات",
-                          onPress: () => Linking.openSettings(),
-                        },
-                      ]
-                    );
-                    resolve();
-                  } else {
-                    // Save as pending (not active) and start geofence
-                    await setPendingTask(newTask);
-                    setPendingTaskState(newTask);
-                    await startGeofence(place.latitude, place.longitude);
-                    setGeofenceActive(await isGeofenceActive());
-                    resolve();
-                  }
-                },
-              },
-              {
-                text: "مش دلوقتي",
-                style: "cancel",
-                onPress: () => resolve(),
-              },
-            ]
+            "تنبيه الموقع مش متاح",
+            "تنبيهات الموقع بتحتاج نسخة التطوير (Dev Build) ومش بتشتغل في Expo Go.\n\nهتتضاف المهمة بدون تنبيه موقع."
           );
-        });
+          await save({ ...newTask, locationId: undefined });
+          setSecondsLeft(DEFAULT_MINUTES * 60);
+        } else {
+          await new Promise<void>((resolve) => {
+            Alert.alert(
+              "تنبيه الموقع",
+              `عشان نبعتلك تنبيه لما توصل "${place.name}"، التطبيق محتاج:\n\n• تصريح الإشعارات\n• تصريح الموقع "دايماً" (مش بس وانت شغّال التطبيق)\n\nدلوقتي هتظهرلك رسايل من الجهاز عشان توافق.`,
+              [
+                {
+                  text: "تمام، وافق",
+                  onPress: async () => {
+                    try {
+                      const { granted, reason } = await requestPermissions();
+                      if (!granted) {
+                        // Permission denied — save as active task without geofence so work isn't lost
+                        const taskWithoutLocation: Task = { ...newTask, locationId: undefined };
+                        await save(taskWithoutLocation);
+                        setSecondsLeft(DEFAULT_MINUTES * 60);
+                        const { title, message } = permissionDeniedAlert(reason);
+                        Alert.alert(
+                          title,
+                          `اتضافت المهمة بدون تنبيه موقع. ${message}`,
+                          [
+                            { text: "مش دلوقتي", style: "cancel" },
+                            {
+                              text: "افتح الإعدادات",
+                              onPress: () => Linking.openSettings(),
+                            },
+                          ]
+                        );
+                      } else {
+                        // Save as pending (not active) and start geofence
+                        await setPendingTask(newTask);
+                        setPendingTaskState(newTask);
+                        await startGeofence(place.latitude, place.longitude);
+                        setGeofenceActive(await isGeofenceActive());
+                      }
+                    } catch {
+                      // Unexpected native error — save task without geofence so work isn't lost
+                      await save({ ...newTask, locationId: undefined });
+                      setSecondsLeft(DEFAULT_MINUTES * 60);
+                      Alert.alert(
+                        "خطأ غير متوقع",
+                        "حصل مشكلة في تفعيل تنبيه الموقع. اتضافت المهمة بدون تنبيه موقع."
+                      );
+                    }
+                    resolve();
+                  },
+                },
+                {
+                  text: "مش دلوقتي",
+                  style: "cancel",
+                  onPress: () => resolve(),
+                },
+              ]
+            );
+          });
+        }
       }
     } else {
       // No location — activate immediately as usual
@@ -317,8 +336,8 @@ export default function Home() {
     setTaskState(activating);
     setSecondsLeft((activating.currentDuration ?? DEFAULT_MINUTES) * 60);
 
-    // If the next task has a location, restart the geofence for it
-    if (activating.locationId) {
+    // If the next task has a location, restart the geofence for it (dev build only)
+    if (activating.locationId && !isExpoGo()) {
       const place = places.find((p) => p.id === activating.locationId);
       if (place) {
         await startGeofence(place.latitude, place.longitude);
@@ -355,22 +374,36 @@ export default function Home() {
     if (newPlaceId) {
       const place = places.find((p) => p.id === newPlaceId);
       if (place) {
-        const { granted, reason } = await requestPermissions();
-        if (granted) {
-          await startGeofence(place.latitude, place.longitude);
-        } else {
-          const { title, message } = permissionDeniedAlert(reason);
+        if (isExpoGo()) {
           Alert.alert(
-            title,
-            message,
-            [
-              { text: "مش دلوقتي", style: "cancel" },
-              {
-                text: "افتح الإعدادات",
-                onPress: () => Linking.openSettings(),
-              },
-            ]
+            "تنبيه الموقع مش متاح",
+            "تنبيهات الموقع بتحتاج نسخة التطوير (Dev Build) ومش بتشتغل في Expo Go."
           );
+        } else {
+          try {
+            const { granted, reason } = await requestPermissions();
+            if (granted) {
+              await startGeofence(place.latitude, place.longitude);
+            } else {
+              const { title, message } = permissionDeniedAlert(reason);
+              Alert.alert(
+                title,
+                message,
+                [
+                  { text: "مش دلوقتي", style: "cancel" },
+                  {
+                    text: "افتح الإعدادات",
+                    onPress: () => Linking.openSettings(),
+                  },
+                ]
+              );
+            }
+          } catch {
+            Alert.alert(
+              "خطأ غير متوقع",
+              "حصل مشكلة في تفعيل تنبيه الموقع."
+            );
+          }
         }
       }
     }
