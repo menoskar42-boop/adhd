@@ -1,9 +1,12 @@
 import * as Haptics from "expo-haptics";
-import React, { useEffect, useRef, useState } from "react";
+import { router } from "expo-router";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Alert,
   Keyboard,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -12,6 +15,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { requestPermissions, startGeofence, stopGeofence } from "@/lib/geofence";
+import { getPlaces, Place } from "@/lib/places";
 import { clearTask, getTask, setTask, Task } from "@/lib/storage";
 
 const DEFAULT_MINUTES = 10;
@@ -32,10 +37,18 @@ export default function Home() {
   const [isRunning, setIsRunning] = useState(false);
   const [showDonePrompt, setShowDonePrompt] = useState(false);
 
+  // Places
+  const [places, setPlaces] = useState<Place[]>([]);
+  const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
+
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
   const botPad = Platform.OS === "web" ? Math.max(insets.bottom, 34) : insets.bottom;
+
+  const loadPlaces = useCallback(async () => {
+    setPlaces(await getPlaces());
+  }, []);
 
   useEffect(() => {
     getTask().then((saved) => {
@@ -44,7 +57,14 @@ export default function Home() {
         setSecondsLeft((saved.currentDuration ?? DEFAULT_MINUTES) * 60);
       }
     });
-  }, []);
+    loadPlaces();
+  }, [loadPlaces]);
+
+  // Reload places when coming back from the Places screen
+  useEffect(() => {
+    const interval = setInterval(loadPlaces, 2000);
+    return () => clearInterval(interval);
+  }, [loadPlaces]);
 
   useEffect(() => {
     if (!isRunning) {
@@ -78,15 +98,35 @@ export default function Home() {
   const addTask = async () => {
     if (!draft.trim()) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
     const next: Task = {
       title: draft.trim(),
       sessions: [],
       currentDuration: DEFAULT_MINUTES,
+      locationId: selectedPlaceId ?? undefined,
     };
     await save(next);
     setSecondsLeft(DEFAULT_MINUTES * 60);
     setDraft("");
     Keyboard.dismiss();
+
+    // Register geofence if a place was selected
+    if (selectedPlaceId) {
+      const place = places.find((p) => p.id === selectedPlaceId);
+      if (place) {
+        const granted = await requestPermissions();
+        if (!granted) {
+          Alert.alert(
+            "تصريح الموقع",
+            "محتاج تصريح الموقع في الخلفية عشان يبعتلك تنبيه لما توصل المكان ده. روح الإعدادات وفعّل الموقع الدائم."
+          );
+        } else {
+          await startGeofence(place.latitude, place.longitude);
+        }
+      }
+    }
+
+    setSelectedPlaceId(null);
   };
 
   const startTimer = () => {
@@ -135,6 +175,7 @@ export default function Home() {
 
   const finishTask = async () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    await stopGeofence();
     await clearTask();
     setTaskState(null);
     setShowDonePrompt(false);
@@ -143,6 +184,11 @@ export default function Home() {
   };
 
   const bg = isRunning ? "#EAF1EC" : "#F5F7F6";
+
+  // Which place is linked to the active task
+  const linkedPlace = task?.locationId
+    ? places.find((p) => p.id === task.locationId)
+    : null;
 
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
@@ -154,9 +200,23 @@ export default function Home() {
       >
         {!task ? (
           <View style={styles.center}>
-            <Text style={styles.logo} testID="logo">
-              NeuroPilot
-            </Text>
+            {/* Header row: logo + places button */}
+            <View style={styles.headerRow}>
+              <Text style={styles.logo} testID="logo">
+                NeuroPilot
+              </Text>
+              <Pressable
+                onPress={() => router.push("/places")}
+                style={({ pressed }) => [
+                  styles.placesIconBtn,
+                  { opacity: pressed ? 0.6 : 1 },
+                ]}
+                testID="places-button"
+              >
+                <Text style={styles.placesIcon}>📍</Text>
+              </Pressable>
+            </View>
+
             <TextInput
               testID="task-input"
               value={draft}
@@ -167,6 +227,41 @@ export default function Home() {
               returnKeyType="done"
               style={styles.input}
             />
+
+            {/* Place chips */}
+            {places.length > 0 && (
+              <View style={styles.chipsWrapper}>
+                <Text style={styles.chipsLabel}>تنبيه عند وصولك لـ:</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.chipsScroll}
+                >
+                  {places.map((place) => {
+                    const active = selectedPlaceId === place.id;
+                    return (
+                      <Pressable
+                        key={place.id}
+                        onPress={() => {
+                          Haptics.selectionAsync();
+                          setSelectedPlaceId(active ? null : place.id);
+                        }}
+                        style={({ pressed }) => [
+                          styles.chip,
+                          active && styles.chipActive,
+                          { opacity: pressed ? 0.75 : 1 },
+                        ]}
+                      >
+                        <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                          📍 {place.name}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
+
             <Pressable
               testID="add-task-button"
               onPress={addTask}
@@ -184,6 +279,15 @@ export default function Home() {
             <Text style={styles.taskTitle} testID="task-title" numberOfLines={2}>
               {task.title}
             </Text>
+
+            {/* Location badge */}
+            {linkedPlace && (
+              <View style={styles.locationBadge}>
+                <Text style={styles.locationBadgeText}>
+                  📍 تنبيه عند وصولك: {linkedPlace.name}
+                </Text>
+              </View>
+            )}
 
             <Text style={styles.clock} testID="timer-display">
               {fmt(secondsLeft)}
@@ -288,12 +392,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 16,
   },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+    position: "relative",
+    marginBottom: 8,
+  },
   logo: {
     fontSize: 36,
     fontFamily: "Inter_700Bold",
     color: "#4A6FA5",
     letterSpacing: -1,
-    marginBottom: 8,
+  },
+  placesIconBtn: {
+    position: "absolute",
+    right: 0,
+    padding: 6,
+  },
+  placesIcon: {
+    fontSize: 26,
   },
   input: {
     width: "100%",
@@ -306,6 +425,50 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     color: "#2E2E2E",
     backgroundColor: "#fff",
+  },
+  chipsWrapper: {
+    width: "100%",
+    gap: 8,
+  },
+  chipsLabel: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: "#6B7E80",
+    textAlign: "right",
+  },
+  chipsScroll: {
+    gap: 8,
+    paddingVertical: 2,
+  },
+  chip: {
+    borderWidth: 1.5,
+    borderColor: "#4A6FA5",
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: "transparent",
+  },
+  chipActive: {
+    backgroundColor: "#4A6FA5",
+  },
+  chipText: {
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
+    color: "#4A6FA5",
+  },
+  chipTextActive: {
+    color: "#fff",
+  },
+  locationBadge: {
+    backgroundColor: "#E8F0EC",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  locationBadgeText: {
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
+    color: "#2E6B4A",
   },
   taskTitle: {
     fontSize: 22,

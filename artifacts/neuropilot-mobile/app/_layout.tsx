@@ -15,6 +15,9 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
+// Register background geofence task at module load time
+import "@/lib/geofence";
+
 SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
@@ -23,6 +26,10 @@ function RootLayoutNav() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
+      <Stack.Screen
+        name="places"
+        options={{ presentation: "modal", headerShown: false }}
+      />
     </Stack>
   );
 }

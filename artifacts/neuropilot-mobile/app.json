@@ -14,9 +14,22 @@
       "backgroundColor": "#F5F7F6"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "NeuroPilot needs your location to remind you about tasks when you arrive at saved places.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "NeuroPilot needs background location access to remind you about tasks when you arrive at saved places.",
+        "NSLocationAlwaysUsageDescription": "NeuroPilot needs background location access to remind you about tasks when you arrive at saved places."
+      }
     },
-    "android": {},
+    "android": {
+      "permissions": [
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE"
+      ]
+    },
     "web": {
       "favicon": "./assets/images/icon.png"
     },
@@ -28,7 +41,25 @@
         }
       ],
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "NeuroPilot needs your location to remind you about tasks when you arrive at saved places.",
+          "locationAlwaysPermission": "NeuroPilot needs background location to send reminders when you arrive.",
+          "locationWhenInUsePermission": "NeuroPilot needs your location to save places and send arrival reminders.",
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#4A6FA5",
+          "androidMode": "default",
+          "androidCollapsedTitle": "NeuroPilot"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

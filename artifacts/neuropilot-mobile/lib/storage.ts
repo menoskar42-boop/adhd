@@ -11,6 +11,7 @@ export interface Task {
   title: string;
   sessions: Session[];
   currentDuration: number;
+  locationId?: string;
 }
 
 export async function getTask(): Promise<Task | null> {
