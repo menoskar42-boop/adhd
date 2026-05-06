@@ -110,7 +110,7 @@ export default function Home() {
     setAutoStartCount(0);
   };
 
-  const continueSession = () => {
+  const nextSession = () => {
     if (!task) return;
     const nextTask = {
       ...task,
@@ -189,11 +189,11 @@ export default function Home() {
                   Yes
                 </button>
                 <button
-                  onClick={continueSession}
+                  onClick={nextSession}
                   className="w-full rounded-xl py-4 text-2xl font-semibold text-white"
                   style={{ backgroundColor: theme.colors.primary }}
                 >
-                  Continue
+                  Next
                 </button>
               </div>
             ) : (
@@ -202,32 +202,46 @@ export default function Home() {
                   <p className="text-3xl font-semibold">Starting in {autoStartCount}...</p>
                 ) : null}
 
-                {!isRunning ? (
-                  <button
-                    onClick={startTimer}
-                    className="w-full rounded-xl border-2 py-6 text-4xl font-semibold text-white"
-                    style={{ borderColor: theme.colors.primary, backgroundColor: theme.colors.primary }}
-                  >
-                    Start
-                  </button>
-                ) : (
-                  <div className="space-y-4">
+                <div className="space-y-4">
+                  {!isRunning ? (
                     <button
-                      onClick={pauseTimer}
+                      onClick={startTimer}
                       className="w-full rounded-xl border-2 py-6 text-4xl font-semibold text-white"
                       style={{ borderColor: theme.colors.primary, backgroundColor: theme.colors.primary }}
+                    >
+                      Start
+                    </button>
+                  ) : null}
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <button
+                      onClick={pauseTimer}
+                      disabled={!isRunning}
+                      className="rounded-xl border-2 py-4 text-xl font-semibold"
+                      style={{
+                        borderColor: theme.colors.primary,
+                        color: isRunning ? theme.colors.primary : "#94A3B8",
+                        opacity: isRunning ? 1 : 0.5,
+                      }}
                     >
                       Pause
                     </button>
                     <button
                       onClick={stopEarly}
-                      className="w-full rounded-xl border-2 py-4 text-2xl font-semibold"
+                      className="rounded-xl border-2 py-4 text-xl font-semibold"
                       style={{ borderColor: theme.colors.primary, color: theme.colors.primary }}
                     >
-                      Stop Early
+                      Stop
+                    </button>
+                    <button
+                      onClick={nextSession}
+                      className="rounded-xl border-2 py-4 text-xl font-semibold"
+                      style={{ borderColor: theme.colors.primary, color: theme.colors.primary }}
+                    >
+                      Next
                     </button>
                   </div>
-                )}
+                </div>
 
                 <button
                   onClick={startDistractionReset}
