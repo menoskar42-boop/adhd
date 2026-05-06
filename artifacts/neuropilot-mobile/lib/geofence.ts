@@ -72,3 +72,11 @@ export async function stopGeofence(): Promise<void> {
     }
   } catch {}
 }
+
+export async function isGeofenceActive(): Promise<boolean> {
+  try {
+    return await TaskManager.isTaskRegisteredAsync(GEOFENCE_TASK);
+  } catch {
+    return false;
+  }
+}

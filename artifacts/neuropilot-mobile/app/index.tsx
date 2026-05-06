@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Keyboard,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -15,7 +16,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { requestPermissions, startGeofence, stopGeofence } from "@/lib/geofence";
+import { isGeofenceActive, requestPermissions, startGeofence, stopGeofence } from "@/lib/geofence";
 import { getPlaces, Place } from "@/lib/places";
 import { clearTask, getTask, setTask, Task } from "@/lib/storage";
 
@@ -40,6 +41,8 @@ export default function Home() {
   // Places
   const [places, setPlaces] = useState<Place[]>([]);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
+  const [showChangePlaceModal, setShowChangePlaceModal] = useState(false);
+  const [geofenceActive, setGeofenceActive] = useState(false);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -58,6 +61,7 @@ export default function Home() {
       }
     });
     loadPlaces();
+    isGeofenceActive().then(setGeofenceActive);
   }, [loadPlaces]);
 
   // Reload places whenever this screen is focused (e.g., returning from Places modal)
@@ -132,6 +136,7 @@ export default function Home() {
                   } else {
                     await startGeofence(place.latitude, place.longitude);
                   }
+                  setGeofenceActive(await isGeofenceActive());
                   resolve();
                 },
               },
@@ -201,6 +206,7 @@ export default function Home() {
     setShowDonePrompt(false);
     setSecondsLeft(DEFAULT_MINUTES * 60);
     setIsRunning(false);
+    setGeofenceActive(false);
   };
 
   const changeTask = () => {
@@ -216,6 +222,29 @@ export default function Home() {
         },
       ]
     );
+  };
+
+  const changePlace = async (newPlaceId: string | null) => {
+    if (!task) return;
+    Haptics.selectionAsync();
+    setShowChangePlaceModal(false);
+
+    await stopGeofence();
+
+    const next: Task = { ...task, locationId: newPlaceId ?? undefined };
+    await save(next);
+
+    if (newPlaceId) {
+      const place = places.find((p) => p.id === newPlaceId);
+      if (place) {
+        const granted = await requestPermissions();
+        if (granted) {
+          await startGeofence(place.latitude, place.longitude);
+        }
+      }
+    }
+
+    setGeofenceActive(await isGeofenceActive());
   };
 
   const bg = isRunning ? "#EAF1EC" : "#F5F7F6";
@@ -315,12 +344,47 @@ export default function Home() {
               {task.title}
             </Text>
 
-            {/* Location badge */}
+            {/* Location map-pin card */}
             {linkedPlace && (
-              <View style={styles.locationBadge}>
-                <Text style={styles.locationBadgeText}>
-                  📍 تنبيه عند وصولك: {linkedPlace.name}
-                </Text>
+              <View style={styles.mapPinCard}>
+                <View style={styles.mapPinCardInner}>
+                  <View style={styles.mapPinIconWrap}>
+                    <Text style={styles.mapPinEmoji}>📍</Text>
+                  </View>
+                  <View style={styles.mapPinInfo}>
+                    <View style={styles.mapPinRow}>
+                      <Text style={styles.mapPinName} numberOfLines={1}>
+                        {linkedPlace.name}
+                      </Text>
+                      {geofenceActive && (
+                        <View style={styles.geofenceBadge}>
+                          <View style={styles.geofenceDot} />
+                          <Text style={styles.geofenceBadgeText}>نشط</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.mapPinCoords}>
+                      {linkedPlace.latitude.toFixed(4)}°{linkedPlace.latitude >= 0 ? "N" : "S"},{" "}
+                      {linkedPlace.longitude.toFixed(4)}°{linkedPlace.longitude >= 0 ? "E" : "W"}
+                    </Text>
+                    <Text style={styles.mapPinSub}>تنبيه عند وصولك لهذا المكان</Text>
+                  </View>
+                </View>
+                {places.length > 1 && (
+                  <Pressable
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      setShowChangePlaceModal(true);
+                    }}
+                    style={({ pressed }) => [
+                      styles.changePlaceBtn,
+                      { opacity: pressed ? 0.7 : 1 },
+                    ]}
+                    testID="change-place-button"
+                  >
+                    <Text style={styles.changePlaceBtnText}>غيّر المكان</Text>
+                  </Pressable>
+                )}
               </View>
             )}
 
@@ -423,6 +487,60 @@ export default function Home() {
             )}
           </View>
         )}
+      {/* Change Place Modal */}
+      <Modal
+        visible={showChangePlaceModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowChangePlaceModal(false)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setShowChangePlaceModal(false)}
+        >
+          <Pressable style={styles.modalSheet} onPress={() => {}}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>اختار مكان تاني</Text>
+            <Text style={styles.modalSubtitle}>
+              هيوقف التنبيه الحالي ويبدأ تنبيه للمكان الجديد
+            </Text>
+            <ScrollView
+              style={styles.modalList}
+              showsVerticalScrollIndicator={false}
+            >
+              {places
+                .filter((p) => p.id !== task?.locationId)
+                .map((place) => (
+                  <Pressable
+                    key={place.id}
+                    onPress={() => changePlace(place.id)}
+                    style={({ pressed }) => [
+                      styles.modalPlaceRow,
+                      { opacity: pressed ? 0.7 : 1 },
+                    ]}
+                  >
+                    <Text style={styles.modalPlacePin}>📍</Text>
+                    <View style={styles.modalPlaceInfo}>
+                      <Text style={styles.modalPlaceName}>{place.name}</Text>
+                      <Text style={styles.modalPlaceCoords}>
+                        {place.latitude.toFixed(4)}°, {place.longitude.toFixed(4)}°
+                      </Text>
+                    </View>
+                  </Pressable>
+                ))}
+              <Pressable
+                onPress={() => changePlace(null)}
+                style={({ pressed }) => [
+                  styles.modalRemoveRow,
+                  { opacity: pressed ? 0.7 : 1 },
+                ]}
+              >
+                <Text style={styles.modalRemoveText}>✕  إلغاء ربط المكان</Text>
+              </Pressable>
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
       </View>
     </TouchableWithoutFeedback>
   );
@@ -506,16 +624,160 @@ const styles = StyleSheet.create({
   chipTextActive: {
     color: "#fff",
   },
-  locationBadge: {
-    backgroundColor: "#E8F0EC",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+  mapPinCard: {
+    width: "100%",
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: "#7FB069",
+    overflow: "hidden",
   },
-  locationBadgeText: {
-    fontSize: 14,
-    fontFamily: "Inter_500Medium",
+  mapPinCardInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+    gap: 12,
+  },
+  mapPinIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: "#E8F4E4",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mapPinEmoji: {
+    fontSize: 26,
+  },
+  mapPinInfo: {
+    flex: 1,
+    gap: 3,
+  },
+  mapPinRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  mapPinName: {
+    flex: 1,
+    fontSize: 16,
+    fontFamily: "Inter_600SemiBold",
+    color: "#2E2E2E",
+  },
+  geofenceBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#E8F4E4",
+    borderRadius: 20,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  geofenceDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#7FB069",
+  },
+  geofenceBadgeText: {
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
     color: "#2E6B4A",
+  },
+  mapPinCoords: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    color: "#6B7E80",
+  },
+  mapPinSub: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+    color: "#4A8C6A",
+  },
+  changePlaceBtn: {
+    borderTopWidth: 1,
+    borderTopColor: "#D4ECCC",
+    backgroundColor: "#F4FBF2",
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  changePlaceBtnText: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+    color: "#7FB069",
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "flex-end",
+  },
+  modalSheet: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingBottom: 36,
+    paddingTop: 12,
+    maxHeight: "70%",
+  },
+  modalHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#D0D5D3",
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontFamily: "Inter_700Bold",
+    color: "#2E2E2E",
+    textAlign: "center",
+    marginBottom: 6,
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    color: "#6B7E80",
+    textAlign: "center",
+    marginBottom: 16,
+  },
+  modalList: {
+    flexGrow: 0,
+  },
+  modalPlaceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F3F2",
+  },
+  modalPlacePin: {
+    fontSize: 22,
+  },
+  modalPlaceInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  modalPlaceName: {
+    fontSize: 16,
+    fontFamily: "Inter_600SemiBold",
+    color: "#2E2E2E",
+  },
+  modalPlaceCoords: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    color: "#6B7E80",
+  },
+  modalRemoveRow: {
+    paddingVertical: 16,
+    alignItems: "center",
+  },
+  modalRemoveText: {
+    fontSize: 15,
+    fontFamily: "Inter_500Medium",
+    color: "#C0392B",
   },
   taskTitle: {
     fontSize: 22,
