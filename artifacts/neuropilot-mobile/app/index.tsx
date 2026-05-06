@@ -508,6 +508,11 @@ export default function Home() {
                     );
                   })}
                 </ScrollView>
+                {selectedPlaceId && (
+                  <Text style={styles.placePermissionHint}>
+                    يتطلب صلاحية الموقع «دائمًا» والإشعارات
+                  </Text>
+                )}
               </View>
             )}
 
@@ -833,6 +838,13 @@ const styles = StyleSheet.create({
   chipsScroll: {
     gap: 8,
     paddingVertical: 2,
+  },
+  placePermissionHint: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    color: "#6B7E80",
+    textAlign: "right",
+    marginTop: 2,
   },
   chip: {
     borderWidth: 1.5,
