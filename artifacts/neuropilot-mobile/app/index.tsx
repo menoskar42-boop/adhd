@@ -212,15 +212,7 @@ export default function Home() {
         {
           text: "آه، غيّر",
           style: "destructive",
-          onPress: async () => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            await stopGeofence();
-            await clearTask();
-            setTaskState(null);
-            setShowDonePrompt(false);
-            setSecondsLeft(DEFAULT_MINUTES * 60);
-            setIsRunning(false);
-          },
+          onPress: finishTask,
         },
       ]
     );
@@ -425,7 +417,7 @@ export default function Home() {
                     { opacity: pressed ? 0.7 : 1 },
                   ]}
                 >
-                  <Text style={styles.btnTextNeutral}>Change Task</Text>
+                  <Text style={styles.btnTextNeutral}>غيّر المهمة</Text>
                 </Pressable>
               </View>
             )}
@@ -596,7 +588,7 @@ const styles = StyleSheet.create({
   },
   btnTextNeutral: {
     color: "#6B7E80",
-    fontSize: 15,
+    fontSize: 17,
     fontFamily: "Inter_500Medium",
   },
 });
