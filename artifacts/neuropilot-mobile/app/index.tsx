@@ -20,7 +20,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { isGeofenceActive, requestPermissions, startGeofence, stopGeofence } from "@/lib/geofence";
+import { isGeofenceActive, PermissionDeniedReason, requestPermissions, startGeofence, stopGeofence } from "@/lib/geofence";
 import { getPlaces, Place } from "@/lib/places";
 import {
   clearNextTask,
@@ -33,6 +33,19 @@ import {
   setTask,
   Task,
 } from "@/lib/storage";
+
+function permissionDeniedAlert(reason: PermissionDeniedReason | null): { title: string; message: string } {
+  if (reason === "notifications") {
+    return {
+      title: "الإشعارات مش مفعّلة",
+      message: "عشان يوصلك تنبيه لما توصل المكان، افتح الإعدادات وفعّل الإشعارات للتطبيق.",
+    };
+  }
+  return {
+    title: "تصريح الموقع مش مكتمل",
+    message: "عشان يشتغل تنبيه الموقع، افتح الإعدادات وغيّر صلاحية الموقع لـ «دايماً».",
+  };
+}
 
 const DEFAULT_MINUTES = 10;
 const MAX_MINUTES = 25;
@@ -177,15 +190,16 @@ export default function Home() {
               {
                 text: "تمام، وافق",
                 onPress: async () => {
-                  const granted = await requestPermissions();
+                  const { granted, reason } = await requestPermissions();
                   if (!granted) {
                     // Permission denied — save as active task without geofence so work isn't lost
                     const taskWithoutLocation: Task = { ...newTask, locationId: undefined };
                     await save(taskWithoutLocation);
                     setSecondsLeft(DEFAULT_MINUTES * 60);
+                    const { title, message } = permissionDeniedAlert(reason);
                     Alert.alert(
-                      "تصريح مش مكتمل",
-                      "اتضافت المهمة بدون تنبيه موقع. عشان يشتغل التنبيه، افتح الإعدادات وغيّر صلاحية الموقع لـ «دايماً».",
+                      title,
+                      `اتضافت المهمة بدون تنبيه موقع. ${message}`,
                       [
                         { text: "مش دلوقتي", style: "cancel" },
                         {
@@ -341,13 +355,14 @@ export default function Home() {
     if (newPlaceId) {
       const place = places.find((p) => p.id === newPlaceId);
       if (place) {
-        const granted = await requestPermissions();
+        const { granted, reason } = await requestPermissions();
         if (granted) {
           await startGeofence(place.latitude, place.longitude);
         } else {
+          const { title, message } = permissionDeniedAlert(reason);
           Alert.alert(
-            "تصريح مش مكتمل",
-            "عشان يشتغل تنبيه الموقع، افتح الإعدادات وغيّر صلاحية الموقع لـ «دايماً».",
+            title,
+            message,
             [
               { text: "مش دلوقتي", style: "cancel" },
               {

@@ -72,18 +72,27 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }: TaskManager.TaskMa
   }
 });
 
-export async function requestPermissions(): Promise<boolean> {
+export type PermissionDeniedReason = "notifications" | "foreground" | "background";
+
+export interface PermissionResult {
+  granted: boolean;
+  reason: PermissionDeniedReason | null;
+}
+
+export async function requestPermissions(): Promise<PermissionResult> {
   // Notification permission
   const { status: notifStatus } = await Notifications.requestPermissionsAsync();
-  if (notifStatus !== "granted") return false;
+  if (notifStatus !== "granted") return { granted: false, reason: "notifications" };
 
   // Foreground location
   const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
-  if (fgStatus !== "granted") return false;
+  if (fgStatus !== "granted") return { granted: false, reason: "foreground" };
 
   // Background location (needed for geofencing)
   const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
-  return bgStatus === "granted";
+  if (bgStatus !== "granted") return { granted: false, reason: "background" };
+
+  return { granted: true, reason: null };
 }
 
 export async function startGeofence(latitude: number, longitude: number): Promise<void> {
