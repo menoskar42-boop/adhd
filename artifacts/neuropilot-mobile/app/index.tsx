@@ -114,15 +114,34 @@ export default function Home() {
     if (selectedPlaceId) {
       const place = places.find((p) => p.id === selectedPlaceId);
       if (place) {
-        const granted = await requestPermissions();
-        if (!granted) {
+        await new Promise<void>((resolve) => {
           Alert.alert(
-            "تصريح الموقع",
-            "محتاج تصريح الموقع في الخلفية عشان يبعتلك تنبيه لما توصل المكان ده. روح الإعدادات وفعّل الموقع الدائم."
+            "تنبيه الموقع",
+            `عشان نبعتلك تنبيه لما توصل "${place.name}"، التطبيق محتاج:\n\n• تصريح الإشعارات\n• تصريح الموقع "دايماً" (مش بس وانت شغّال التطبيق)\n\nدلوقتي هتظهرلك رسايل من الجهاز عشان توافق.`,
+            [
+              {
+                text: "تمام، وافق",
+                onPress: async () => {
+                  const granted = await requestPermissions();
+                  if (!granted) {
+                    Alert.alert(
+                      "تصريح مش مكتمل",
+                      "محتاج تفعّل الموقع على 'دايماً' في إعدادات التطبيق عشان يشتغل التنبيه."
+                    );
+                  } else {
+                    await startGeofence(place.latitude, place.longitude);
+                  }
+                  resolve();
+                },
+              },
+              {
+                text: "مش دلوقتي",
+                style: "cancel",
+                onPress: () => resolve(),
+              },
+            ]
           );
-        } else {
-          await startGeofence(place.latitude, place.longitude);
-        }
+        });
       }
     }
 
