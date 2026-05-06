@@ -203,6 +203,29 @@ export default function Home() {
     setIsRunning(false);
   };
 
+  const changeTask = () => {
+    Alert.alert(
+      "غيّر المهمة",
+      "هتمسح المهمة الحالية وتبدأ من الأول. متأكد؟",
+      [
+        { text: "لأ", style: "cancel" },
+        {
+          text: "آه، غيّر",
+          style: "destructive",
+          onPress: async () => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            await stopGeofence();
+            await clearTask();
+            setTaskState(null);
+            setShowDonePrompt(false);
+            setSecondsLeft(DEFAULT_MINUTES * 60);
+            setIsRunning(false);
+          },
+        },
+      ]
+    );
+  };
+
   const bg = isRunning ? "#EAF1EC" : "#F5F7F6";
 
   // Which place is linked to the active task
@@ -392,6 +415,18 @@ export default function Home() {
                 >
                   <Text style={styles.btnTextAccent}>Stop Early</Text>
                 </Pressable>
+
+                <Pressable
+                  testID="change-task-button"
+                  onPress={changeTask}
+                  style={({ pressed }) => [
+                    styles.btn,
+                    styles.btnOutlineNeutral,
+                    { opacity: pressed ? 0.7 : 1 },
+                  ]}
+                >
+                  <Text style={styles.btnTextNeutral}>Change Task</Text>
+                </Pressable>
               </View>
             )}
           </View>
@@ -552,6 +587,16 @@ const styles = StyleSheet.create({
   btnTextAccent: {
     color: "#7FB069",
     fontSize: 17,
+    fontFamily: "Inter_500Medium",
+  },
+  btnOutlineNeutral: {
+    borderWidth: 1.5,
+    borderColor: "#A0AFAA",
+    backgroundColor: "transparent",
+  },
+  btnTextNeutral: {
+    color: "#6B7E80",
+    fontSize: 15,
     fontFamily: "Inter_500Medium",
   },
 });
