@@ -1,4 +1,5 @@
 import * as Haptics from "expo-haptics";
+import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -74,8 +75,10 @@ export default function Home() {
   useEffect(() => {
     if (!isRunning) {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      deactivateKeepAwake();
       return;
     }
+    activateKeepAwakeAsync();
     intervalRef.current = setInterval(() => {
       setSecondsLeft((prev) => {
         if (prev <= 1) {
@@ -90,6 +93,7 @@ export default function Home() {
     }, 1000);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      deactivateKeepAwake();
     };
   }, [isRunning]);
 
