@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { clearTask, getTask, setTask } from "@/lib/storage";
 import { theme } from "@/lib/theme";
 
@@ -23,6 +23,30 @@ export default function Home() {
   const [isRunning, setIsRunning] = useState(false);
   const [showDonePrompt, setShowDonePrompt] = useState(false);
   const [autoStartCount, setAutoStartCount] = useState(0);
+  const reminderTimeoutsRef = useRef([]);
+
+  const clearReminderTimeouts = () => {
+    reminderTimeoutsRef.current.forEach((id) => clearTimeout(id));
+    reminderTimeoutsRef.current = [];
+  };
+
+  const sendGentleReminder = () => {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+    new Notification("بس 3 دقايق ونبدأ");
+  };
+
+  const scheduleReminders = () => {
+    clearReminderTimeouts();
+    const reminderDelays = [2, 7, 17];
+    reminderTimeoutsRef.current = reminderDelays.map((delayMinutes) =>
+      setTimeout(() => {
+        if (!isRunning) {
+          sendGentleReminder();
+        }
+      }, delayMinutes * 60 * 1000)
+    );
+  };
 
   useEffect(() => {
     const saved = getTask();
@@ -31,6 +55,8 @@ export default function Home() {
       setTimeLeft((saved.currentDuration || DEFAULT_MINUTES) * 60);
     }
   }, []);
+
+  useEffect(() => () => clearReminderTimeouts(), []);
 
   useEffect(() => {
     if (!isRunning) return;
@@ -87,11 +113,16 @@ export default function Home() {
     setTimeLeft(DEFAULT_MINUTES * 60);
     setShowDonePrompt(false);
     setAutoStartCount(2);
+    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+    scheduleReminders();
   };
 
 
   const startTimer = () => {
     setIsRunning(true);
+    clearReminderTimeouts();
   };
 
   const pauseTimer = () => setIsRunning(false);
@@ -144,6 +175,7 @@ export default function Home() {
     setTimeLeft(DEFAULT_MINUTES * 60);
     setIsRunning(false);
     setAutoStartCount(0);
+    clearReminderTimeouts();
   };
 
   return (
@@ -159,6 +191,7 @@ export default function Home() {
         {!task ? (
           <>
             <h1 className="text-5xl font-semibold">NeuroPilot</h1>
+            <p className="text-xl opacity-75">نبدأ 3 دقايق بس</p>
             <input
               value={taskTitle}
               onChange={(e) => setTaskTitle(e.target.value)}
