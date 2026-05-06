@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Keyboard,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -135,7 +136,14 @@ export default function Home() {
                   if (!granted) {
                     Alert.alert(
                       "تصريح مش مكتمل",
-                      "محتاج تفعّل الموقع على 'دايماً' في إعدادات التطبيق عشان يشتغل التنبيه."
+                      "عشان يشتغل تنبيه الموقع، افتح الإعدادات وغيّر صلاحية الموقع لـ «دايماً».",
+                      [
+                        { text: "مش دلوقتي", style: "cancel" },
+                        {
+                          text: "افتح الإعدادات",
+                          onPress: () => Linking.openSettings(),
+                        },
+                      ]
                     );
                   } else {
                     await startGeofence(place.latitude, place.longitude);
@@ -244,6 +252,18 @@ export default function Home() {
         const granted = await requestPermissions();
         if (granted) {
           await startGeofence(place.latitude, place.longitude);
+        } else {
+          Alert.alert(
+            "تصريح مش مكتمل",
+            "عشان يشتغل تنبيه الموقع، افتح الإعدادات وغيّر صلاحية الموقع لـ «دايماً».",
+            [
+              { text: "مش دلوقتي", style: "cancel" },
+              {
+                text: "افتح الإعدادات",
+                onPress: () => Linking.openSettings(),
+              },
+            ]
+          );
         }
       }
     }

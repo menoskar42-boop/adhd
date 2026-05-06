@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Linking,
   Pressable,
   StyleSheet,
   Text,
@@ -31,10 +32,14 @@ export default function PlacesScreen() {
   const [places, setPlaces] = useState<Place[]>([]);
   const [nameInput, setNameInput] = useState("");
   const [saving, setSaving] = useState(false);
+  const [bgPermDenied, setBgPermDenied] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       getPlaces().then(setPlaces);
+      Location.getBackgroundPermissionsAsync().then(({ status }) => {
+        setBgPermDenied(status === "denied");
+      });
     }, [])
   );
 
@@ -107,6 +112,22 @@ export default function PlacesScreen() {
         </Pressable>
         <Text style={styles.title}>أماكنك</Text>
       </View>
+
+      {/* Background location warning banner */}
+      {bgPermDenied && (
+        <Pressable
+          onPress={() => Linking.openSettings()}
+          style={styles.permBanner}
+        >
+          <Text style={styles.permBannerIcon}>⚠️</Text>
+          <View style={styles.permBannerBody}>
+            <Text style={styles.permBannerTitle}>صلاحية الموقع مش مفعّلة</Text>
+            <Text style={styles.permBannerSub}>
+              تنبيهات الوصول محتاجة «دايماً» في الإعدادات — اضغط هنا لتفعيلها
+            </Text>
+          </View>
+        </Pressable>
+      )}
 
       {/* Save current location */}
       <View style={styles.addSection}>
@@ -321,5 +342,37 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: "#C0392B",
     lineHeight: 22,
+  },
+  permBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFF8E6",
+    borderWidth: 1.5,
+    borderColor: "#E6A817",
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 16,
+    gap: 10,
+  },
+  permBannerIcon: {
+    fontSize: 22,
+  },
+  permBannerBody: {
+    flex: 1,
+    gap: 2,
+  },
+  permBannerTitle: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+    color: "#7A4F00",
+    textAlign: "right",
+  },
+  permBannerSub: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    color: "#9A6700",
+    textAlign: "right",
+    lineHeight: 18,
   },
 });
