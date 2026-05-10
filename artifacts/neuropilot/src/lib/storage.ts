@@ -9,6 +9,7 @@ export interface Task {
   title: string;
   sessions: Session[];
   currentDuration: number;
+  locationId?: string;
 }
 
 export function getTask(): Task | null {
