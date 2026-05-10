@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { clearTask, getTask, setTask, Task } from "@/lib/storage";
 import { theme } from "@/lib/theme";
+import { useWakeLock } from "@/hooks/use-wake-lock";
 
 const DEFAULT_MINUTES = 3;
 const MAX_MINUTES = 25;
@@ -37,6 +38,9 @@ export default function Home() {
   const [showDonePrompt, setShowDonePrompt] = useState(false);
   const [showOpenMessage, setShowOpenMessage] = useState(false);
 
+  // Keep screen awake while a task is loaded (browser wake lock).
+  useWakeLock(task !== null);
+
   const reminderTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const clearReminders = () => {
@@ -64,6 +68,7 @@ export default function Home() {
       const t = setTimeout(() => setShowOpenMessage(false), 4000);
       return () => clearTimeout(t);
     }
+    return undefined;
   }, []);
 
   // Cleanup reminders on unmount
