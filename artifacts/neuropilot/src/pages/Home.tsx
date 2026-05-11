@@ -181,41 +181,80 @@ export default function Home() {
     locationId: placeId ?? undefined,
   });
 
-  // Returns true if geofence was successfully armed, false otherwise.
-  const armGeofenceFor = async (placeId: string | null): Promise<boolean> => {
-    if (!placeId) return false;
-    const place = getPlaceById(placeId);
-    if (!place) return false;
+  // Requests location + notification permission and starts the foreground
+  // watcher for the given place. Returns true on success.
+  const armGeofenceFor = async (place: Place): Promise<boolean> => {
     const granted = await requestGeofencePermissions();
-    if (!granted) {
-      window.alert(
-        "اتضافت المهمة بدون تنبيه موقع. محتاج تفعّل تصريح الموقع والإشعارات علشان يشتغل التنبيه عند الوصول.",
-      );
-      return false;
-    }
+    if (!granted) return false;
     startGeofence(place.latitude, place.longitude);
     return true;
   };
 
-  const addTask = async () => {
-    if (!taskTitle.trim()) return;
-    const nextTask = createTask(taskTitle, selectedPlaceId);
-    saveTask(nextTask);
+  // Schedule a location-linked task as pending and start its geofence.
+  const schedulePendingTask = (taskToSchedule: Task) => {
+    setPendingTask(taskToSchedule);
+    setPendingTaskState(taskToSchedule);
     setTaskTitle("");
+    setSelectedPlaceId(null);
+  };
+
+  // Activate a task immediately, stripping any locationId (used when the
+  // user starts a location-linked task as a normal one after permission
+  // denial).
+  const activateImmediately = (taskToActivate: Task) => {
+    const stripped: Task = { ...taskToActivate, locationId: undefined };
+    saveTask(stripped);
+    setTaskTitle("");
+    setSelectedPlaceId(null);
     setSecondsLeft(duration * 60);
     scheduleReminders();
+  };
+
+  const addTask = async () => {
+    if (!taskTitle.trim()) return;
+    const candidate = createTask(taskTitle, selectedPlaceId);
+
     if (selectedPlaceId) {
-      // armGeofenceFor requests Notification + Geolocation permission.
-      const armed = await armGeofenceFor(selectedPlaceId);
-      if (!armed) {
-        // Strip locationId so badge/state stay consistent with reality.
-        saveTask({ ...nextTask, locationId: undefined });
+      const place = getPlaceById(selectedPlaceId);
+      if (!place) {
+        // Place vanished between selection and add — fall back to normal.
+        activateImmediately(candidate);
+        return;
       }
-    } else {
-      // No place linked — just prime the Notification permission for reminders.
-      await requestPermission();
+      const armed = await armGeofenceFor(place);
+      if (armed) {
+        schedulePendingTask(candidate);
+      } else {
+        // Open the modal asking the user how to proceed.
+        setPermissionDialog({ task: candidate, place });
+      }
+      return;
     }
-    setSelectedPlaceId(null);
+
+    // No place linked — keep the existing immediate-start behaviour.
+    activateImmediately(candidate);
+    await requestPermission();
+  };
+
+  // Permission dialog actions.
+  const dialogStartAsNormal = () => {
+    if (!permissionDialog) return;
+    activateImmediately(permissionDialog.task);
+    setPermissionDialog(null);
+  };
+
+  const dialogRequestPermission = async () => {
+    if (!permissionDialog) return;
+    const armed = await armGeofenceFor(permissionDialog.place);
+    if (armed) {
+      schedulePendingTask(permissionDialog.task);
+      setPermissionDialog(null);
+    }
+    // Otherwise, leave the dialog open so the user can retry or cancel.
+  };
+
+  const dialogCancel = () => {
+    setPermissionDialog(null);
   };
 
   const startTimer = () => {
@@ -302,6 +341,57 @@ export default function Home() {
           }}
         >
           {OPEN_MSG}
+        </div>
+      )}
+
+      {/* Permission-denied dialog for location-linked tasks. */}
+      {permissionDialog && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-6"
+          style={{ backgroundColor: "rgba(0,0,0,0.35)" }}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white p-6 space-y-4 shadow-xl"
+            style={{ direction: "rtl" }}
+          >
+            <h2
+              className="text-2xl font-bold"
+              style={{ color: theme.colors.text }}
+            >
+              تنبيه الموقع مش مفعّل
+            </h2>
+            <p className="text-base leading-7" style={{ color: "#4A5654" }}>
+              مش هينفع نسجّل المهمة كمهمة مجدولة لأن تصريح الموقع مش متاح.
+              عاوز تبدأها كمهمة عادية ولا تدّى الإذن وتفضل مجدولة؟
+            </p>
+            <div className="space-y-3 pt-1">
+              <button
+                onClick={dialogStartAsNormal}
+                className="w-full rounded-xl py-3 text-lg font-semibold text-white"
+                style={{ backgroundColor: theme.colors.primary }}
+              >
+                ابدأ الآن
+              </button>
+              <button
+                onClick={dialogRequestPermission}
+                className="w-full rounded-xl py-3 text-lg font-semibold border-2"
+                style={{
+                  borderColor: theme.colors.primary,
+                  color: theme.colors.primary,
+                  backgroundColor: "transparent",
+                }}
+              >
+                إعطاء الإذن للموقع
+              </button>
+              <button
+                onClick={dialogCancel}
+                className="w-full rounded-xl py-3 text-base font-medium"
+                style={{ color: "#6B7E80" }}
+              >
+                إلغاء المهمة
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
