@@ -5,27 +5,34 @@
 // can get.
 
 import {
-  clearPendingTask,
-  getPendingTask,
+  deleteScheduledTask,
+  getScheduledTasks,
   getTask,
   setNextTask,
   setTask,
 } from "./storage";
 
+export interface GeofenceTarget {
+  placeId: string;
+  latitude: number;
+  longitude: number;
+}
+
 const RADIUS_METERS = 100;
 const EARTH_RADIUS_M = 6_371_000;
 
 let watchId: number | null = null;
-let target: { latitude: number; longitude: number } | null = null;
-let alreadyEntered = false;
-let arrivalCallback: (() => void) | null = null;
+let targets: GeofenceTarget[] = [];
+const visited = new Set<string>();
+let arrivalCallback: ((placeId: string) => void) | null = null;
 
 /**
  * Subscribe to geofence arrival events so the UI can refresh its task state
- * from storage. Returns an unsubscribe function. Only one subscriber is
- * supported at a time (parity with the mobile single-screen app).
+ * from storage. The callback receives the placeId of the place that was
+ * just entered. Returns an unsubscribe function. Only one subscriber is
+ * supported at a time.
  */
-export function onArrival(cb: () => void): () => void {
+export function onArrival(cb: (placeId: string) => void): () => void {
   arrivalCallback = cb;
   return () => {
     if (arrivalCallback === cb) arrivalCallback = null;
@@ -52,29 +59,41 @@ function notify(body: string): void {
   new Notification("NeuroPilot 📍", { body });
 }
 
-// Mirrors artifacts/neuropilot-mobile/lib/geofence.ts handleArrival logic.
-// Reads pending + active state from storage and either promotes the
-// pending task to active, or queues it as the next task when the user is
-// already busy with something else.
-function handleArrival(): void {
-  const pending = getPendingTask();
-  const active = getTask();
+// Read the FIFO-oldest scheduled task tied to the given place, promote it
+// to active when nothing else is running, or queue it as the next task
+// otherwise. Removes the chosen scheduled task from the list either way.
+function handleArrival(placeId: string): void {
+  const scheduled = getScheduledTasks();
+  const arrival = scheduled
+    .filter((t) => t.locationId === placeId)
+    .sort((a, b) => a.createdAt - b.createdAt)[0];
 
-  if (pending && !active) {
-    setTask(pending);
-    clearPendingTask();
-    notify(`حان وقت مهمتك: ${pending.title}`);
-  } else if (pending && active) {
-    setNextTask(pending);
-    clearPendingTask();
-    notify(`وصلت! مهمتك الجاية جاهزة: ${pending.title}`);
-  } else if (active) {
-    notify(`وصلت! حان وقت مهمتك: ${active.title}`);
-  } else {
-    notify("وصلت لمكانك");
+  if (!arrival) {
+    const active = getTask();
+    if (active) notify(`وصلت! حان وقت مهمتك: ${active.title}`);
+    else notify("وصلت لمكانك");
+    arrivalCallback?.(placeId);
+    return;
   }
 
-  arrivalCallback?.();
+  deleteScheduledTask(arrival.id);
+  const active = getTask();
+  const promoted = {
+    title: arrival.title,
+    sessions: [],
+    currentDuration: arrival.currentDuration,
+    locationId: arrival.locationId,
+  };
+
+  if (!active) {
+    setTask(promoted);
+    notify(`حان وقت مهمتك: ${arrival.title}`);
+  } else {
+    setNextTask(promoted);
+    notify(`وصلت! مهمتك الجاية جاهزة: ${arrival.title}`);
+  }
+
+  arrivalCallback?.(placeId);
 }
 
 export async function requestPermissions(): Promise<boolean> {
@@ -102,22 +121,42 @@ export async function requestPermissions(): Promise<boolean> {
   });
 }
 
-export function startGeofence(latitude: number, longitude: number): void {
+/**
+ * Replace the set of places the foreground watcher is monitoring. Each
+ * arrival fires once per place per session (deduped via the `visited`
+ * set). An empty list stops the watcher entirely.
+ */
+export function setGeofenceTargets(next: GeofenceTarget[]): void {
   if (!("geolocation" in navigator)) return;
-  stopGeofence();
-  target = { latitude, longitude };
-  alreadyEntered = false;
+  // Stop any previous watcher but keep `visited` so we don't re-fire the
+  // same place when targets are rearranged.
+  if (watchId !== null) {
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+  }
+  targets = next;
+  if (targets.length === 0) return;
+
+  // Drop visited entries for places that are no longer in the target list
+  // so a future re-add can trigger again.
+  const activeIds = new Set(targets.map((t) => t.placeId));
+  for (const id of Array.from(visited)) {
+    if (!activeIds.has(id)) visited.delete(id);
+  }
+
   watchId = navigator.geolocation.watchPosition(
     (pos) => {
-      if (!target || alreadyEntered) return;
-      const d = distanceMeters(target, {
+      const here = {
         latitude: pos.coords.latitude,
         longitude: pos.coords.longitude,
-      });
-      if (d <= RADIUS_METERS) {
-        alreadyEntered = true;
-        handleArrival();
-        stopGeofence();
+      };
+      for (const t of targets) {
+        if (visited.has(t.placeId)) continue;
+        const d = distanceMeters(here, t);
+        if (d <= RADIUS_METERS) {
+          visited.add(t.placeId);
+          handleArrival(t.placeId);
+        }
       }
     },
     () => {
@@ -127,15 +166,24 @@ export function startGeofence(latitude: number, longitude: number): void {
   );
 }
 
+/** Stop the watcher and forget which places we've already fired for. */
 export function stopGeofence(): void {
   if (watchId !== null && "geolocation" in navigator) {
     navigator.geolocation.clearWatch(watchId);
   }
   watchId = null;
-  target = null;
-  alreadyEntered = false;
+  targets = [];
+  visited.clear();
 }
 
 export function isGeofenceActive(): boolean {
   return watchId !== null;
+}
+
+/**
+ * @deprecated Compat shim while Home.tsx migrates to setGeofenceTargets.
+ * Treats the single coordinate as one anonymous target.
+ */
+export function startGeofence(latitude: number, longitude: number): void {
+  setGeofenceTargets([{ placeId: "__legacy__", latitude, longitude }]);
 }
