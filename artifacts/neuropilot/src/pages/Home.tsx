@@ -257,6 +257,21 @@ export default function Home() {
     setPermissionDialog(null);
   };
 
+  // Discard the pending task and stop the foreground watcher.
+  const cancelPendingTask = () => {
+    stopGeofence();
+    clearPendingTask();
+    setPendingTaskState(null);
+  };
+
+  // Resolve the linked place for the active and pending tasks.
+  const pendingPlace = useMemo(
+    () => (pendingTaskState?.locationId
+      ? getPlaceById(pendingTaskState.locationId)
+      : null),
+    [pendingTaskState]
+  );
+
   const startTimer = () => {
     clearReminders();
     setShowOpenMessage(false);
@@ -396,7 +411,42 @@ export default function Home() {
       )}
 
       <div className="w-full max-w-md text-center space-y-6">
-        {!task ? (
+        {!task && pendingTaskState ? (
+          // Waiting state: a location-linked task is scheduled.
+          <>
+            <h1 className="text-4xl font-semibold">NeuroPilot</h1>
+            <div
+              className="rounded-2xl px-6 py-8 space-y-3"
+              style={{
+                backgroundColor: "#E8F0EC",
+                direction: "rtl",
+              }}
+            >
+              <p className="text-4xl">📍</p>
+              <p
+                className="text-2xl font-bold"
+                style={{ color: theme.colors.text }}
+              >
+                {pendingTaskState.title}
+              </p>
+              <p className="text-base" style={{ color: "#2E6B4A" }}>
+                ستبدأ مهمتك لما توصل
+                {pendingPlace ? ` "${pendingPlace.name}"` : " للمكان"}
+              </p>
+            </div>
+            <button
+              onClick={cancelPendingTask}
+              className="w-full rounded-xl py-3 text-base font-medium border-2"
+              style={{
+                borderColor: "#A0AFAA",
+                color: "#6B7E80",
+                backgroundColor: "transparent",
+              }}
+            >
+              إلغاء وتغيير المهمة
+            </button>
+          </>
+        ) : !task ? (
           <>
             <div className="relative flex items-center justify-center w-full">
               <h1 className="text-4xl font-semibold">NeuroPilot</h1>
