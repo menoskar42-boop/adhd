@@ -13,6 +13,12 @@ export interface Task {
   sessions: Session[];
   currentDuration: number;
   locationId?: string;
+  /**
+   * Optional "why now" the user set on the no-task screen. Surfaced as
+   * a small line under the task title to re-anchor the ADHD prefrontal
+   * cortex during the session.
+   */
+  intention?: string;
 }
 
 export function getTask(): Task | null {

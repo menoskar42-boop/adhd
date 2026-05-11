@@ -76,6 +76,8 @@ export default function Home() {
   const [brainDumpText, setBrainDumpText] = useState("");
   const [celebrate, setCelebrate] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [intention, setIntention] = useState("");
+  const [intentionOpen, setIntentionOpen] = useState(false);
   const [now, setNow] = useState<Date>(() => new Date());
 
   // Refresh the wall clock every 15s so end-of-session estimates stay
@@ -250,7 +252,15 @@ export default function Home() {
     sessions: [],
     currentDuration: duration,
     locationId: placeId ?? undefined,
+    intention: intention.trim() ? intention.trim() : undefined,
   });
+
+  // Reset the intention input after a successful add so the next task
+  // starts with a clean slate.
+  const resetIntention = () => {
+    setIntention("");
+    setIntentionOpen(false);
+  };
 
   // Requests location + notification permission and starts the foreground
   // watcher for the given place. Returns true on success.
@@ -282,6 +292,7 @@ export default function Home() {
     setScheduledTasks((prev) => [...prev, entry]);
     setTaskTitle("");
     setSelectedPlaceId(null);
+    resetIntention();
     toast({
       description: "تمت إضافة المهمة إلى المهام المجدولة 📋",
     });
@@ -295,6 +306,7 @@ export default function Home() {
     saveTask(stripped);
     setTaskTitle("");
     setSelectedPlaceId(null);
+    resetIntention();
     setSecondsLeft(duration * 60);
     scheduleReminders();
   };
@@ -716,6 +728,35 @@ export default function Home() {
               className="w-full rounded-xl border-2 px-4 py-4 text-2xl outline-none"
               style={{ borderColor: theme.colors.primary }}
             />
+            {!intentionOpen ? (
+              <button
+                onClick={() => setIntentionOpen(true)}
+                className="text-sm font-medium underline-offset-4 hover:underline"
+                style={{ color: "#6B7E80", direction: "rtl" }}
+              >
+                💡 ليه دلوقتى؟ (اختيارى)
+              </button>
+            ) : (
+              <div className="w-full space-y-2" style={{ direction: "rtl" }}>
+                <label
+                  className="block text-sm font-medium"
+                  style={{ color: "#6B7E80" }}
+                >
+                  💡 ليه دلوقتى؟
+                </label>
+                <textarea
+                  value={intention}
+                  onChange={(e) => setIntention(e.target.value)}
+                  rows={2}
+                  placeholder="مثلاً: علشان أخلّى البيت مرتب قبل الضيوف"
+                  className="w-full rounded-xl border-2 px-3 py-2 text-base outline-none resize-none bg-white"
+                  style={{
+                    borderColor: theme.colors.primary,
+                    textAlign: "right",
+                  }}
+                />
+              </div>
+            )}
             {places.length > 0 && (
               <div className="w-full space-y-2" style={{ direction: "rtl" }}>
                 <p className="text-sm font-medium" style={{ color: "#6B7E80" }}>
@@ -827,6 +868,14 @@ export default function Home() {
                 💭
               </button>
             </div>
+            {task.intention && (
+              <p
+                className="text-sm italic"
+                style={{ color: "#6B7E80", direction: "rtl" }}
+              >
+                💡 {task.intention}
+              </p>
+            )}
             {linkedPlace && (
               <div
                 className="inline-block rounded-xl px-3.5 py-2 text-sm font-medium"
