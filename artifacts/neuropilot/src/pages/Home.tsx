@@ -1,29 +1,46 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import {
+  addScheduledTask,
   clearNextTask,
-  clearPendingTask,
   clearTask,
   getNextTask,
-  getPendingTask,
+  getScheduledTasks,
   getTask,
-  setPendingTask,
+  type ScheduledTask,
   setTask,
   Task,
 } from "@/lib/storage";
 import { getPlaceById, getPlaces, type Place } from "@/lib/places";
+import { addThought } from "@/lib/thoughts";
+import { haptics } from "@/lib/haptics";
+import { getTopTemplates, recordTaskTitle } from "@/lib/templates";
 import {
+  getStreak,
+  getTodayCount,
+  recordCompletedSession,
+} from "@/lib/stats";
+import {
+  type GeofenceTarget,
   onArrival,
   requestPermissions as requestGeofencePermissions,
-  startGeofence,
+  setGeofenceTargets,
   stopGeofence,
 } from "@/lib/geofence";
 import { theme } from "@/lib/theme";
 import { useWakeLock } from "@/hooks/use-wake-lock";
+import { useToast } from "@/hooks/use-toast";
+import { useTheme } from "@/hooks/use-theme";
 
 const DEFAULT_MINUTES = 3;
 const MAX_MINUTES = 25;
-const REMINDER_MSG = "بس 3 دقايق ونبدأ";
+// Tiered reminder copy. ADHD brains habituate to identical pings; the
+// 7- and 17-minute messages escalate gently without scolding.
+const REMINDERS = [
+  "بس 3 دقايق ونبدأ 💙",
+  "لسه واقف هنا — جرّب 5 دقايق بس وشوف ✨",
+  "مفيش مشكلة لو اتأخرت، لكن مهمتك مستنية 🌿",
+];
 const OPEN_MSG = "نبدأ 3 دقايق بس";
 
 function formatTime(totalSeconds: number): string {
@@ -48,7 +65,6 @@ async function requestPermission() {
 
 export default function Home() {
   const [taskTitle, setTaskTitle] = useState("");
-  const [nextTaskTitle, setNextTaskTitle] = useState("");
   const [duration, setDuration] = useState(DEFAULT_MINUTES);
   const [task, setTaskState] = useState<Task | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(DEFAULT_MINUTES * 60);
@@ -57,16 +73,64 @@ export default function Home() {
   const [showOpenMessage, setShowOpenMessage] = useState(false);
   const [places, setPlaces] = useState<Place[]>([]);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
-  const [pendingTaskState, setPendingTaskState] = useState<Task | null>(null);
+  const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([]);
   const [nextTaskState, setNextTaskState] = useState<Task | null>(null);
   const [permissionDialog, setPermissionDialog] = useState<{
     task: Task;
     place: Place;
   } | null>(null);
+  const { toast } = useToast();
+  const { mode: themeMode, toggle: toggleTheme } = useTheme();
+  const [brainDumpOpen, setBrainDumpOpen] = useState(false);
+  const [brainDumpText, setBrainDumpText] = useState("");
+  const [celebrate, setCelebrate] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [intention, setIntention] = useState("");
+  const [intentionOpen, setIntentionOpen] = useState(false);
+  const [templates, setTemplates] = useState<string[]>(() => getTopTemplates(5));
+  const [now, setNow] = useState<Date>(() => new Date());
 
-  // Keep screen awake while a task or pending task is loaded
-  // (so the foreground geofence keeps polling).
-  useWakeLock(task !== null || pendingTaskState !== null);
+  // Refresh the wall clock every 15s so end-of-session estimates stay
+  // accurate without thrashing renders.
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 15_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const wallClock = useMemo(() => {
+    const h = now.getHours().toString().padStart(2, "0");
+    const m = now.getMinutes().toString().padStart(2, "0");
+    return `${h}:${m}`;
+  }, [now]);
+
+  const endTime = useMemo(() => {
+    if (!task) return null;
+    const end = new Date(Date.now() + secondsLeft * 1000);
+    const h = end.getHours().toString().padStart(2, "0");
+    const m = end.getMinutes().toString().padStart(2, "0");
+    return `${h}:${m}`;
+  }, [task, secondsLeft]);
+
+  const progressPct = useMemo(() => {
+    const total = (task?.currentDuration ?? DEFAULT_MINUTES) * 60;
+    if (total <= 0) return 0;
+    const elapsed = total - secondsLeft;
+    return Math.max(0, Math.min(100, (elapsed / total) * 100));
+  }, [task, secondsLeft]);
+  const [todayCount, setTodayCount] = useState<number>(() => getTodayCount());
+  const [streak, setStreak] = useState<number>(() => getStreak());
+
+  const saveThought = () => {
+    const saved = addThought(brainDumpText);
+    if (!saved) return;
+    setBrainDumpText("");
+    setBrainDumpOpen(false);
+    toast({ description: "تم حفظ الفكرة 💭 — كمّل مهمتك." });
+  };
+
+  // Keep screen awake while a task is running or any scheduled task is
+  // waiting on arrival (so the foreground geofence keeps polling).
+  useWakeLock(task !== null || scheduledTasks.length > 0);
 
   const [, navigate] = useLocation();
 
@@ -85,19 +149,40 @@ export default function Home() {
 
   const scheduleReminders = () => {
     clearReminders();
-    // 2 min → 7 min (2+5) → 17 min (2+5+10)
+    // 2 min → 7 min (2+5) → 17 min (2+5+10). Each tier uses its own
+    // message so the user doesn't habituate to a single recurring ping.
     const delays = [2 * 60 * 1000, 7 * 60 * 1000, 17 * 60 * 1000];
-    delays.forEach((ms) => {
-      reminderTimers.current.push(setTimeout(() => notify(REMINDER_MSG), ms));
+    delays.forEach((ms, idx) => {
+      const message = REMINDERS[idx] ?? REMINDERS[REMINDERS.length - 1];
+      reminderTimers.current.push(setTimeout(() => notify(message), ms));
     });
   };
 
-  // On mount: load active + pending + next task. Re-arm the foreground
-  // geofence for whichever task is waiting on arrival, since
-  // watchPosition does not persist across page loads.
+  // Build the geofence target list from the unique places referenced by
+  // any currently scheduled task. Returns an empty array if no place is
+  // resolvable. Memoised so the arming effect below only re-runs when the
+  // schedule actually changes.
+  const geofenceTargets = useMemo<GeofenceTarget[]>(() => {
+    const seen = new Set<string>();
+    const list: GeofenceTarget[] = [];
+    for (const t of scheduledTasks) {
+      if (seen.has(t.locationId)) continue;
+      const place = getPlaceById(t.locationId);
+      if (!place) continue;
+      seen.add(t.locationId);
+      list.push({
+        placeId: place.id,
+        latitude: place.latitude,
+        longitude: place.longitude,
+      });
+    }
+    return list;
+  }, [scheduledTasks]);
+
+  // On mount: load active + scheduled + next task.
   useEffect(() => {
     const saved = getTask();
-    const pending = getPendingTask();
+    const scheduled = getScheduledTasks();
     const next = getNextTask();
 
     if (saved) {
@@ -105,17 +190,8 @@ export default function Home() {
       setSecondsLeft((saved.currentDuration || DEFAULT_MINUTES) * 60);
       setShowOpenMessage(true);
     }
-    if (pending) setPendingTaskState(pending);
+    setScheduledTasks(scheduled);
     if (next) setNextTaskState(next);
-
-    // The geofence is armed for whichever task currently needs arrival
-    // detection: a pending task takes priority, otherwise an active task
-    // with a linked location.
-    const target = pending ?? (saved?.locationId ? saved : null);
-    if (target?.locationId) {
-      const place = getPlaceById(target.locationId);
-      if (place) startGeofence(place.latitude, place.longitude);
-    }
 
     const t = saved
       ? setTimeout(() => setShowOpenMessage(false), 4000)
@@ -125,11 +201,21 @@ export default function Home() {
     };
   }, []);
 
+  // Re-arm the foreground watcher every time the set of scheduled places
+  // changes. An empty list stops the watcher entirely.
+  useEffect(() => {
+    setGeofenceTargets(geofenceTargets);
+    return () => {
+      // Don't stop on unmount — the arrival callback persists with the
+      // page, and re-mounts will replace the target list anyway.
+    };
+  }, [geofenceTargets]);
+
   // Refresh task state from storage whenever the geofence fires arrival.
   useEffect(() => {
     return onArrival(() => {
       setTaskState(getTask());
-      setPendingTaskState(getPendingTask());
+      setScheduledTasks(getScheduledTasks());
       setNextTaskState(getNextTask());
       const active = getTask();
       if (active && !isRunning) {
@@ -178,23 +264,50 @@ export default function Home() {
     sessions: [],
     currentDuration: duration,
     locationId: placeId ?? undefined,
+    intention: intention.trim() ? intention.trim() : undefined,
   });
+
+  // Reset the intention input after a successful add so the next task
+  // starts with a clean slate.
+  const resetIntention = () => {
+    setIntention("");
+    setIntentionOpen(false);
+  };
 
   // Requests location + notification permission and starts the foreground
   // watcher for the given place. Returns true on success.
-  const armGeofenceFor = async (place: Place): Promise<boolean> => {
-    const granted = await requestGeofencePermissions();
-    if (!granted) return false;
-    startGeofence(place.latitude, place.longitude);
-    return true;
+  // Request browser geofence permissions. The watcher itself is managed
+  // by the effect that mirrors scheduledTasks to setGeofenceTargets, so
+  // we just need a yes/no here. The `place` argument is unused now but
+  // kept on the signature so call sites stay symmetric.
+  const armGeofenceFor = async (_place: Place): Promise<boolean> => {
+    void _place;
+    return await requestGeofencePermissions();
   };
 
-  // Schedule a location-linked task as pending and start its geofence.
-  const schedulePendingTask = (taskToSchedule: Task) => {
-    setPendingTask(taskToSchedule);
-    setPendingTaskState(taskToSchedule);
+  // Append a location-linked task to the scheduled list and confirm with
+  // a toast. The geofence target list is re-armed by the effect that
+  // watches scheduledTasks.
+  const scheduleTask = (taskToSchedule: Task) => {
+    if (!taskToSchedule.locationId) return;
+    const entry: ScheduledTask = {
+      id:
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      title: taskToSchedule.title,
+      currentDuration: taskToSchedule.currentDuration,
+      locationId: taskToSchedule.locationId,
+      createdAt: Date.now(),
+    };
+    addScheduledTask(entry);
+    setScheduledTasks((prev) => [...prev, entry]);
     setTaskTitle("");
     setSelectedPlaceId(null);
+    resetIntention();
+    toast({
+      description: "تمت إضافة المهمة إلى المهام المجدولة 📋",
+    });
   };
 
   // Activate a task immediately, stripping any locationId (used when the
@@ -205,12 +318,16 @@ export default function Home() {
     saveTask(stripped);
     setTaskTitle("");
     setSelectedPlaceId(null);
+    resetIntention();
     setSecondsLeft(duration * 60);
     scheduleReminders();
   };
 
   const addTask = async () => {
     if (!taskTitle.trim()) return;
+    haptics.medium();
+    recordTaskTitle(taskTitle);
+    setTemplates(getTopTemplates(5));
     const candidate = createTask(taskTitle, selectedPlaceId);
 
     if (selectedPlaceId) {
@@ -222,7 +339,7 @@ export default function Home() {
       }
       const armed = await armGeofenceFor(place);
       if (armed) {
-        schedulePendingTask(candidate);
+        scheduleTask(candidate);
       } else {
         // Open the modal asking the user how to proceed.
         setPermissionDialog({ task: candidate, place });
@@ -246,7 +363,7 @@ export default function Home() {
     if (!permissionDialog) return;
     const armed = await armGeofenceFor(permissionDialog.place);
     if (armed) {
-      schedulePendingTask(permissionDialog.task);
+      scheduleTask(permissionDialog.task);
       setPermissionDialog(null);
     }
     // Otherwise, leave the dialog open so the user can retry or cancel.
@@ -256,29 +373,18 @@ export default function Home() {
     setPermissionDialog(null);
   };
 
-  // Discard the pending task and stop the foreground watcher.
-  const cancelPendingTask = () => {
-    stopGeofence();
-    clearPendingTask();
-    setPendingTaskState(null);
-  };
-
-  // Resolve the linked place for the active and pending tasks.
-  const pendingPlace = useMemo(
-    () => (pendingTaskState?.locationId
-      ? getPlaceById(pendingTaskState.locationId)
-      : null),
-    [pendingTaskState]
-  );
-
   const startTimer = () => {
     clearReminders();
     setShowOpenMessage(false);
     if (secondsLeft === 0) setSecondsLeft(currentMinutes * 60);
     setIsRunning(true);
+    haptics.light();
   };
 
-  const pauseTimer = () => setIsRunning(false);
+  const pauseTimer = () => {
+    setIsRunning(false);
+    haptics.light();
+  };
 
   const resetTimer = () => {
     setIsRunning(false);
@@ -296,7 +402,6 @@ export default function Home() {
     setShowOpenMessage(false);
     setIsRunning(false);
     setDuration(DEFAULT_MINUTES);
-    setNextTaskTitle("");
     setSecondsLeft(DEFAULT_MINUTES * 60);
   };
 
@@ -317,12 +422,9 @@ export default function Home() {
     setTask(activating);
     setSecondsLeft((activating.currentDuration || DEFAULT_MINUTES) * 60);
     scheduleReminders();
-    // If the activated task itself has a location, re-arm the geofence
-    // so a future arrival at *that* place can fire too.
-    if (activating.locationId) {
-      const place = getPlaceById(activating.locationId);
-      if (place) startGeofence(place.latitude, place.longitude);
-    }
+    // The watcher is driven by scheduledTasks; the activated task isn't
+    // in that list, so no re-arm is needed here. The user is presumably
+    // already at the place anyway.
   };
 
   const dismissNextTask = () => {
@@ -331,17 +433,6 @@ export default function Home() {
   };
 
   const switchTask = () => finishTask();
-
-  const startNextTask = async () => {
-    if (!nextTaskTitle.trim()) return;
-    await requestPermission();
-    const nextTask = createTask(nextTaskTitle);
-    saveTask(nextTask);
-    setNextTaskTitle("");
-    setShowDonePrompt(false);
-    setSecondsLeft(duration * 60);
-    scheduleReminders();
-  };
 
   const stopEarly = () => {
     if (!task) return;
@@ -355,9 +446,30 @@ export default function Home() {
     setSecondsLeft(DEFAULT_MINUTES * 60);
   };
 
-  const completeSession = () => {
+  // Forgiving recovery: notice the distraction, shrink to a 5-minute
+  // warm-up window, and start immediately. Deliberately does NOT push a
+  // "failed" session onto the task — ADHD users need guilt-free re-entry.
+  const DISTRACTION_MINUTES = 5;
+  const markDistracted = () => {
     if (!task) return;
-    const nextDuration = Math.min(currentMinutes + 5, MAX_MINUTES);
+    const nextTask: Task = { ...task, currentDuration: DISTRACTION_MINUTES };
+    saveTask(nextTask);
+    setSecondsLeft(DISTRACTION_MINUTES * 60);
+    setShowDonePrompt(false);
+    setIsRunning(true);
+    clearReminders();
+    haptics.warning();
+    toast({ description: "ولا يهمك — 5 دقايق بس ونرجع." });
+  };
+
+  // Continue the same task. `bump` controls whether the next session
+  // grows the duration (legacy pomodoro-style) or holds steady. ADHD
+  // users often prefer a flat cadence; the choice is theirs.
+  const continueSession = (bump: boolean) => {
+    if (!task) return;
+    const nextDuration = bump
+      ? Math.min(currentMinutes + 5, MAX_MINUTES)
+      : currentMinutes;
     const nextTask: Task = {
       ...task,
       sessions: [...task.sessions, { duration: currentMinutes, completed: true }],
@@ -366,6 +478,14 @@ export default function Home() {
     saveTask(nextTask);
     setShowDonePrompt(false);
     setSecondsLeft(nextDuration * 60);
+    // Dopamine moment: record the completion and trigger the celebration
+    // overlay. Refresh streak/today so the welcome screen reflects it.
+    recordCompletedSession();
+    setTodayCount(getTodayCount());
+    setStreak(getStreak());
+    setCelebrate(true);
+    setTimeout(() => setCelebrate(false), 2200);
+    haptics.success();
   };
 
   return (
@@ -387,6 +507,152 @@ export default function Home() {
           }}
         >
           {OPEN_MSG}
+        </div>
+      )}
+
+      {/* Bottom sheet for the secondary timer actions. ADHD-friendly:
+          one primary action in view, everything else hidden behind a
+          deliberate tap. Reset and Change Task confirm before firing. */}
+      {moreMenuOpen && task && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center"
+          style={{ backgroundColor: "rgba(0,0,0,0.35)" }}
+          onClick={() => setMoreMenuOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-t-2xl bg-white p-6 space-y-3"
+            style={{ direction: "rtl" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => {
+                if (!window.confirm("تعيد التايمر من الأول؟")) return;
+                resetTimer();
+                setMoreMenuOpen(false);
+              }}
+              className="w-full rounded-xl py-3 text-lg font-semibold border-2"
+              style={{
+                borderColor: theme.colors.primary,
+                color: theme.colors.primary,
+              }}
+            >
+              إعادة التايمر
+            </button>
+            <button
+              onClick={() => {
+                stopEarly();
+                setMoreMenuOpen(false);
+              }}
+              className="w-full rounded-xl py-3 text-lg font-semibold border-2"
+              style={{
+                borderColor: theme.colors.accent,
+                color: theme.colors.accent,
+              }}
+            >
+              وقف الجلسة بدرى
+            </button>
+            <button
+              onClick={() => {
+                if (!window.confirm("تخلّى المهمة الحالية؟")) return;
+                switchTask();
+                setMoreMenuOpen(false);
+              }}
+              className="w-full rounded-xl py-3 text-lg font-semibold"
+              style={{
+                border: `2px dashed ${theme.colors.text}`,
+                color: theme.colors.text,
+              }}
+            >
+              غيّر المهمة
+            </button>
+            <button
+              onClick={() => setMoreMenuOpen(false)}
+              className="w-full rounded-xl py-2 text-base font-medium"
+              style={{ color: "#6B7E80" }}
+            >
+              إلغاء
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Celebration overlay — fires after a completed session as a
+          dopamine reward. Pointer-events-none so it never blocks taps. */}
+      {celebrate && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center pointer-events-none"
+          aria-live="polite"
+        >
+          <div
+            className="px-8 py-6 rounded-3xl shadow-2xl celebrate-pop"
+            style={{
+              backgroundColor: theme.colors.accent,
+              color: "#fff",
+              direction: "rtl",
+            }}
+          >
+            <p className="text-5xl text-center">🎉</p>
+            <p className="text-2xl font-bold mt-2 text-center">أحسنت!</p>
+            <p className="text-sm mt-1 text-center opacity-90">
+              جلسة {todayCount} النهارده {streak >= 2 ? `· 🔥 ${streak} أيام` : ""}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Quick brain-dump capture — keeps the user's focus while parking
+          intrusive thoughts. */}
+      {brainDumpOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-6"
+          style={{ backgroundColor: "rgba(0,0,0,0.35)" }}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white p-6 space-y-4 shadow-xl"
+            style={{ direction: "rtl" }}
+          >
+            <h2
+              className="text-xl font-bold"
+              style={{ color: theme.colors.text }}
+            >
+              💭 فكرة سريعة
+            </h2>
+            <p className="text-sm" style={{ color: "#6B7E80" }}>
+              اكتب الفكرة وارجع لمهمتك. هتلاقيها بعدين فى صفحة "أفكارى".
+            </p>
+            <textarea
+              value={brainDumpText}
+              onChange={(e) => setBrainDumpText(e.target.value)}
+              placeholder="مثلاً: لازم أبعت إيميل لـ..."
+              rows={3}
+              autoFocus
+              className="w-full rounded-xl border-2 px-3 py-2 text-base outline-none resize-none bg-white"
+              style={{
+                borderColor: theme.colors.primary,
+                textAlign: "right",
+              }}
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={saveThought}
+                disabled={!brainDumpText.trim()}
+                className="flex-1 rounded-xl py-3 text-base font-semibold text-white disabled:opacity-50"
+                style={{ backgroundColor: theme.colors.primary }}
+              >
+                احفظ ورجّعنى للمهمة
+              </button>
+              <button
+                onClick={() => {
+                  setBrainDumpText("");
+                  setBrainDumpOpen(false);
+                }}
+                className="rounded-xl px-4 py-3 text-base font-medium"
+                style={{ color: "#6B7E80" }}
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -442,45 +708,33 @@ export default function Home() {
       )}
 
       <div className="w-full max-w-md text-center space-y-6">
-        {!task && pendingTaskState ? (
-          // Waiting state: a location-linked task is scheduled.
+        {!task ? (
           <>
-            <h1 className="text-4xl font-semibold">NeuroPilot</h1>
-            <div
-              className="rounded-2xl px-6 py-8 space-y-3"
-              style={{
-                backgroundColor: "#E8F0EC",
-                direction: "rtl",
-              }}
-            >
-              <p className="text-4xl">📍</p>
-              <p
-                className="text-2xl font-bold"
-                style={{ color: theme.colors.text }}
+            {(todayCount > 0 || streak > 0) && (
+              <div
+                className="inline-flex items-center gap-2 self-center rounded-full px-3 py-1 text-sm font-medium"
+                style={{
+                  backgroundColor: "#E8F0EC",
+                  color: "#2E6B4A",
+                  direction: "rtl",
+                }}
               >
-                {pendingTaskState.title}
-              </p>
-              <p className="text-base" style={{ color: "#2E6B4A" }}>
-                ستبدأ مهمتك لما توصل
-                {pendingPlace ? ` "${pendingPlace.name}"` : " للمكان"}
-              </p>
-            </div>
-            <button
-              onClick={cancelPendingTask}
-              className="w-full rounded-xl py-3 text-base font-medium border-2"
-              style={{
-                borderColor: "#A0AFAA",
-                color: "#6B7E80",
-                backgroundColor: "transparent",
-              }}
-            >
-              إلغاء وتغيير المهمة
-            </button>
-          </>
-        ) : !task ? (
-          <>
+                {streak >= 2 && <span>🔥 {streak} أيام</span>}
+                {streak >= 2 && todayCount > 0 && <span>·</span>}
+                {todayCount > 0 && <span>اليوم {todayCount} جلسة</span>}
+              </div>
+            )}
             <div className="relative flex items-center justify-center w-full">
               <h1 className="text-4xl font-semibold">NeuroPilot</h1>
+              <button
+                onClick={toggleTheme}
+                aria-label={
+                  themeMode === "dark" ? "وضع نهارى" : "وضع ليلى"
+                }
+                className="absolute left-0 p-1.5 text-xl hover:opacity-70 transition-opacity"
+              >
+                {themeMode === "dark" ? "☀️" : "🌙"}
+              </button>
               <button
                 onClick={() => navigate("/places")}
                 aria-label="Saved places"
@@ -497,6 +751,66 @@ export default function Home() {
               className="w-full rounded-xl border-2 px-4 py-4 text-2xl outline-none"
               style={{ borderColor: theme.colors.primary }}
             />
+            {templates.length > 0 && (
+              <div
+                className="w-full space-y-1.5"
+                style={{ direction: "rtl" }}
+              >
+                <p
+                  className="text-xs font-medium"
+                  style={{ color: "#6B7E80" }}
+                >
+                  مهام بتكتبها كتير:
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {templates.map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => {
+                        setTaskTitle(t);
+                        haptics.light();
+                      }}
+                      className="rounded-full border px-3 py-1 text-sm font-medium hover:opacity-80"
+                      style={{
+                        borderColor: theme.colors.primary,
+                        color: theme.colors.primary,
+                      }}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {!intentionOpen ? (
+              <button
+                onClick={() => setIntentionOpen(true)}
+                className="text-sm font-medium underline-offset-4 hover:underline"
+                style={{ color: "#6B7E80", direction: "rtl" }}
+              >
+                💡 ليه دلوقتى؟ (اختيارى)
+              </button>
+            ) : (
+              <div className="w-full space-y-2" style={{ direction: "rtl" }}>
+                <label
+                  className="block text-sm font-medium"
+                  style={{ color: "#6B7E80" }}
+                >
+                  💡 ليه دلوقتى؟
+                </label>
+                <textarea
+                  value={intention}
+                  onChange={(e) => setIntention(e.target.value)}
+                  rows={2}
+                  placeholder="مثلاً: علشان أخلّى البيت مرتب قبل الضيوف"
+                  className="w-full rounded-xl border-2 px-3 py-2 text-base outline-none resize-none bg-white"
+                  style={{
+                    borderColor: theme.colors.primary,
+                    textAlign: "right",
+                  }}
+                />
+              </div>
+            )}
             {places.length > 0 && (
               <div className="w-full space-y-2" style={{ direction: "rtl" }}>
                 <p className="text-sm font-medium" style={{ color: "#6B7E80" }}>
@@ -533,6 +847,22 @@ export default function Home() {
               style={{ backgroundColor: theme.colors.primary }}
             >
               Start Now
+            </button>
+            {scheduledTasks.length > 0 && (
+              <button
+                onClick={() => navigate("/scheduled")}
+                className="text-base font-medium underline-offset-4 hover:underline"
+                style={{ color: theme.colors.primary, direction: "rtl" }}
+              >
+                📋 المهام المجدولة ({scheduledTasks.length})
+              </button>
+            )}
+            <button
+              onClick={() => navigate("/thoughts")}
+              className="text-sm font-medium underline-offset-4 hover:underline"
+              style={{ color: "#6B7E80", direction: "rtl" }}
+            >
+              💭 أفكارى
             </button>
           </>
         ) : (
@@ -576,7 +906,30 @@ export default function Home() {
                 </div>
               </div>
             )}
-            <h1 className="text-4xl font-semibold">{task.title}</h1>
+            <p
+              className="text-sm font-medium tabular-nums"
+              style={{ color: "#6B7E80" }}
+            >
+              🕐 {wallClock}
+            </p>
+            <div className="relative flex items-center justify-center w-full">
+              <h1 className="text-4xl font-semibold">{task.title}</h1>
+              <button
+                onClick={() => setBrainDumpOpen(true)}
+                aria-label="سجّل فكرة"
+                className="absolute right-0 p-1.5 text-2xl hover:opacity-70 transition-opacity"
+              >
+                💭
+              </button>
+            </div>
+            {task.intention && (
+              <p
+                className="text-sm italic"
+                style={{ color: "#6B7E80", direction: "rtl" }}
+              >
+                💡 {task.intention}
+              </p>
+            )}
             {linkedPlace && (
               <div
                 className="inline-block rounded-xl px-3.5 py-2 text-sm font-medium"
@@ -589,47 +942,57 @@ export default function Home() {
                 📍 تنبيه عند وصولك: {linkedPlace.name}
               </div>
             )}
-            <p className="text-6xl font-bold">{formatTime(secondsLeft)}</p>
+            <p className="text-6xl font-bold tabular-nums">
+              {formatTime(secondsLeft)}
+            </p>
+            <div
+              className="w-full h-2 rounded-full overflow-hidden"
+              style={{ backgroundColor: "#E0E7E3" }}
+              aria-hidden="true"
+            >
+              <div
+                className="h-full transition-all duration-1000 ease-linear"
+                style={{
+                  width: `${progressPct}%`,
+                  backgroundColor: theme.colors.primary,
+                }}
+              />
+            </div>
+            {endTime && (
+              <p
+                className="text-sm font-medium tabular-nums"
+                style={{ color: "#6B7E80", direction: "rtl" }}
+              >
+                ينتهى الساعة {endTime}
+              </p>
+            )}
 
             {showDonePrompt ? (
-              <div className="space-y-4">
-                <p className="text-3xl font-semibold">Done?</p>
+              <div className="space-y-3" style={{ direction: "rtl" }}>
+                <p className="text-3xl font-semibold">خلصت الجلسة! 🎉</p>
                 <button
-                  onClick={completeSession}
-                  className="w-full rounded-xl py-4 text-2xl font-semibold"
-                  style={{ border: `2px solid ${theme.colors.primary}` }}
+                  onClick={() => continueSession(false)}
+                  className="w-full rounded-xl py-4 text-xl font-semibold text-white"
+                  style={{ backgroundColor: theme.colors.primary }}
                 >
-                  Continue Next Session
+                  كمّل {currentMinutes} دقيقة تانية
                 </button>
                 <button
                   onClick={finishTask}
-                  className="w-full rounded-xl py-4 text-2xl font-semibold"
-                  style={{ border: `2px solid ${theme.colors.accent}` }}
-                >
-                  Finish Task
-                </button>
-                <input
-                  value={nextTaskTitle}
-                  onChange={(e) => setNextTaskTitle(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && startNextTask()}
-                  placeholder="Next task"
-                  className="w-full rounded-xl border-2 px-4 py-4 text-xl outline-none"
-                  style={{ borderColor: theme.colors.primary }}
-                />
-                <button
-                  onClick={startNextTask}
-                  className="w-full rounded-xl py-4 text-2xl font-semibold text-white"
+                  className="w-full rounded-xl py-4 text-xl font-semibold text-white"
                   style={{ backgroundColor: theme.colors.accent }}
                 >
-                  Start Next Task
+                  خلصت ✓
                 </button>
-                <button
-                  onClick={switchTask}
-                  className="w-full rounded-xl py-4 text-xl font-semibold"
-                  style={{ border: `2px dashed ${theme.colors.text}` }}
-                >
-                  Change Task Manually
-                </button>
+                {currentMinutes < MAX_MINUTES && (
+                  <button
+                    onClick={() => continueSession(true)}
+                    className="w-full text-sm font-medium underline-offset-4 hover:underline pt-1"
+                    style={{ color: "#6B7E80" }}
+                  >
+                    ↑ ارفع المدة لـ {Math.min(currentMinutes + 5, MAX_MINUTES)}م
+                  </button>
+                )}
               </div>
             ) : (
               <div className="space-y-4">
@@ -652,27 +1015,23 @@ export default function Home() {
                 )}
 
                 <button
-                  onClick={resetTimer}
-                  className="w-full rounded-xl py-4 text-2xl font-semibold"
-                  style={{ border: `2px solid ${theme.colors.primary}` }}
+                  onClick={markDistracted}
+                  className="w-full rounded-xl py-3 text-base font-medium"
+                  style={{
+                    border: `2px solid ${theme.colors.accent}`,
+                    color: theme.colors.accent,
+                    direction: "rtl",
+                  }}
                 >
-                  Reset
+                  🌀 شارد ذهنياً — رجّعنى بـ 5 دقايق
                 </button>
 
                 <button
-                  onClick={stopEarly}
-                  className="w-full rounded-xl py-4 text-2xl font-semibold"
-                  style={{ border: `2px solid ${theme.colors.accent}` }}
+                  onClick={() => setMoreMenuOpen(true)}
+                  className="text-sm font-medium underline-offset-4 hover:underline"
+                  style={{ color: "#6B7E80", direction: "rtl" }}
                 >
-                  Stop Early
-                </button>
-
-                <button
-                  onClick={switchTask}
-                  className="w-full rounded-xl py-4 text-2xl font-semibold"
-                  style={{ border: `2px dashed ${theme.colors.text}` }}
-                >
-                  Change Task
+                  ⋮ المزيد
                 </button>
               </div>
             )}
