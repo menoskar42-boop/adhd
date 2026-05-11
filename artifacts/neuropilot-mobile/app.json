@@ -15,6 +15,7 @@
     },
     "ios": {
       "supportsTablet": false,
+      "bundleIdentifier": "com.neuropilot.mobile",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "NeuroPilot needs your location to remind you about tasks when you arrive at saved places.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "NeuroPilot needs background location access to remind you about tasks when you arrive at saved places.",
@@ -22,6 +23,7 @@
       }
     },
     "android": {
+      "package": "com.neuropilot.mobile",
       "permissions": [
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION",
@@ -65,6 +67,11 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "00000000-0000-0000-0000-000000000000"
+      }
     }
   }
 }

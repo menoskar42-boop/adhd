@@ -1,11 +1,13 @@
 import * as Haptics from "expo-haptics";
 import * as Location from "expo-location";
-import { router } from "expo-router";
-import React, { useEffect, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import React, { useCallback, useState } from "react";
+
 import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Linking,
   Pressable,
   StyleSheet,
   Text,
@@ -16,15 +18,30 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { deletePlace, getPlaces, Place, savePlace } from "@/lib/places";
 
+// Check if react-native-maps native module is available (not in Expo Go)
+let mapsAvailable = false;
+try {
+  require("react-native-maps");
+  mapsAvailable = true;
+} catch {
+  // Running in Expo Go — map picker not available
+}
+
 export default function PlacesScreen() {
   const insets = useSafeAreaInsets();
   const [places, setPlaces] = useState<Place[]>([]);
   const [nameInput, setNameInput] = useState("");
   const [saving, setSaving] = useState(false);
+  const [bgPermDenied, setBgPermDenied] = useState(false);
 
-  useEffect(() => {
-    getPlaces().then(setPlaces);
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      getPlaces().then(setPlaces);
+      Location.getBackgroundPermissionsAsync().then(({ status }) => {
+        setBgPermDenied(status === "denied");
+      });
+    }, [])
+  );
 
   const handleSaveHere = async () => {
     const name = nameInput.trim();
@@ -96,6 +113,22 @@ export default function PlacesScreen() {
         <Text style={styles.title}>أماكنك</Text>
       </View>
 
+      {/* Background location warning banner */}
+      {bgPermDenied && (
+        <Pressable
+          onPress={() => Linking.openSettings()}
+          style={styles.permBanner}
+        >
+          <Text style={styles.permBannerIcon}>⚠️</Text>
+          <View style={styles.permBannerBody}>
+            <Text style={styles.permBannerTitle}>صلاحية الموقع مش مفعّلة</Text>
+            <Text style={styles.permBannerSub}>
+              تنبيهات الوصول محتاجة «دايماً» في الإعدادات — اضغط هنا لتفعيلها
+            </Text>
+          </View>
+        </Pressable>
+      )}
+
       {/* Save current location */}
       <View style={styles.addSection}>
         <TextInput
@@ -107,20 +140,46 @@ export default function PlacesScreen() {
           returnKeyType="done"
           onSubmitEditing={handleSaveHere}
         />
-        <Pressable
-          onPress={handleSaveHere}
-          disabled={saving}
-          style={({ pressed }) => [
-            styles.saveBtn,
-            { opacity: pressed || saving ? 0.7 : 1 },
-          ]}
-        >
-          {saving ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.saveBtnText}>📍 احفظ موقعي الحالي</Text>
-          )}
-        </Pressable>
+        <View style={styles.btnRow}>
+          <Pressable
+            onPress={handleSaveHere}
+            disabled={saving}
+            style={({ pressed }) => [
+              styles.saveBtn,
+              styles.btnFlex,
+              { opacity: pressed || saving ? 0.7 : 1 },
+            ]}
+          >
+            {saving ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.saveBtnText}>📍 موقعي الحالي</Text>
+            )}
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              if (!mapsAvailable) {
+                Alert.alert(
+                  "الخريطة مش متاحة",
+                  "ميزة اختيار المكان من الخريطة بتحتاج Expo Dev Client أو نسخة مثبّتة من التطبيق.\n\nاستخدم \"📍 موقعي الحالي\" عشان تحفظ مكانك."
+                );
+                return;
+              }
+              router.push({
+                pathname: "/map-picker",
+                params: nameInput.trim() ? { initialName: nameInput.trim() } : {},
+              });
+            }}
+            style={({ pressed }) => [
+              styles.mapBtn,
+              styles.btnFlex,
+              !mapsAvailable && styles.mapBtnDisabled,
+              { opacity: pressed ? 0.7 : 1 },
+            ]}
+          >
+            <Text style={styles.mapBtnText}>🗺️ اختار من الخريطة</Text>
+          </Pressable>
+        </View>
       </View>
 
       {/* Saved places list */}
@@ -198,6 +257,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     textAlign: "right",
   },
+  btnRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  btnFlex: {
+    flex: 1,
+  },
   saveBtn: {
     backgroundColor: "#4A6FA5",
     borderRadius: 14,
@@ -208,8 +274,26 @@ const styles = StyleSheet.create({
   },
   saveBtnText: {
     color: "#fff",
-    fontSize: 17,
+    fontSize: 15,
     fontFamily: "Inter_600SemiBold",
+    textAlign: "center",
+  },
+  mapBtn: {
+    backgroundColor: "#7FB069",
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 54,
+  },
+  mapBtnText: {
+    color: "#fff",
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
+    textAlign: "center",
+  },
+  mapBtnDisabled: {
+    backgroundColor: "#A0AFAA",
   },
   empty: {
     flex: 1,
@@ -258,5 +342,37 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: "#C0392B",
     lineHeight: 22,
+  },
+  permBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFF8E6",
+    borderWidth: 1.5,
+    borderColor: "#E6A817",
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 16,
+    gap: 10,
+  },
+  permBannerIcon: {
+    fontSize: 22,
+  },
+  permBannerBody: {
+    flex: 1,
+    gap: 2,
+  },
+  permBannerTitle: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+    color: "#7A4F00",
+    textAlign: "right",
+  },
+  permBannerSub: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    color: "#9A6700",
+    textAlign: "right",
+    lineHeight: 18,
   },
 });

@@ -30,6 +30,10 @@ function RootLayoutNav() {
         name="places"
         options={{ presentation: "modal", headerShown: false }}
       />
+      <Stack.Screen
+        name="map-picker"
+        options={{ presentation: "modal", headerShown: false }}
+      />
     </Stack>
   );
 }
