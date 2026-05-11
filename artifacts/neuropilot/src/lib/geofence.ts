@@ -179,11 +179,3 @@ export function stopGeofence(): void {
 export function isGeofenceActive(): boolean {
   return watchId !== null;
 }
-
-/**
- * @deprecated Compat shim while Home.tsx migrates to setGeofenceTargets.
- * Treats the single coordinate as one anonymous target.
- */
-export function startGeofence(latitude: number, longitude: number): void {
-  setGeofenceTargets([{ placeId: "__legacy__", latitude, longitude }]);
-}

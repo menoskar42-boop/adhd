@@ -1,25 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import {
+  addScheduledTask,
   clearNextTask,
-  clearPendingTask,
   clearTask,
   getNextTask,
-  getPendingTask,
+  getScheduledTasks,
   getTask,
-  setPendingTask,
+  type ScheduledTask,
   setTask,
   Task,
 } from "@/lib/storage";
 import { getPlaceById, getPlaces, type Place } from "@/lib/places";
 import {
+  type GeofenceTarget,
   onArrival,
   requestPermissions as requestGeofencePermissions,
-  startGeofence,
+  setGeofenceTargets,
   stopGeofence,
 } from "@/lib/geofence";
 import { theme } from "@/lib/theme";
 import { useWakeLock } from "@/hooks/use-wake-lock";
+import { useToast } from "@/hooks/use-toast";
 
 const DEFAULT_MINUTES = 3;
 const MAX_MINUTES = 25;
@@ -57,16 +59,17 @@ export default function Home() {
   const [showOpenMessage, setShowOpenMessage] = useState(false);
   const [places, setPlaces] = useState<Place[]>([]);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
-  const [pendingTaskState, setPendingTaskState] = useState<Task | null>(null);
+  const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([]);
   const [nextTaskState, setNextTaskState] = useState<Task | null>(null);
   const [permissionDialog, setPermissionDialog] = useState<{
     task: Task;
     place: Place;
   } | null>(null);
+  const { toast } = useToast();
 
-  // Keep screen awake while a task or pending task is loaded
-  // (so the foreground geofence keeps polling).
-  useWakeLock(task !== null || pendingTaskState !== null);
+  // Keep screen awake while a task is running or any scheduled task is
+  // waiting on arrival (so the foreground geofence keeps polling).
+  useWakeLock(task !== null || scheduledTasks.length > 0);
 
   const [, navigate] = useLocation();
 
@@ -92,12 +95,31 @@ export default function Home() {
     });
   };
 
-  // On mount: load active + pending + next task. Re-arm the foreground
-  // geofence for whichever task is waiting on arrival, since
-  // watchPosition does not persist across page loads.
+  // Build the geofence target list from the unique places referenced by
+  // any currently scheduled task. Returns an empty array if no place is
+  // resolvable. Memoised so the arming effect below only re-runs when the
+  // schedule actually changes.
+  const geofenceTargets = useMemo<GeofenceTarget[]>(() => {
+    const seen = new Set<string>();
+    const list: GeofenceTarget[] = [];
+    for (const t of scheduledTasks) {
+      if (seen.has(t.locationId)) continue;
+      const place = getPlaceById(t.locationId);
+      if (!place) continue;
+      seen.add(t.locationId);
+      list.push({
+        placeId: place.id,
+        latitude: place.latitude,
+        longitude: place.longitude,
+      });
+    }
+    return list;
+  }, [scheduledTasks]);
+
+  // On mount: load active + scheduled + next task.
   useEffect(() => {
     const saved = getTask();
-    const pending = getPendingTask();
+    const scheduled = getScheduledTasks();
     const next = getNextTask();
 
     if (saved) {
@@ -105,17 +127,8 @@ export default function Home() {
       setSecondsLeft((saved.currentDuration || DEFAULT_MINUTES) * 60);
       setShowOpenMessage(true);
     }
-    if (pending) setPendingTaskState(pending);
+    setScheduledTasks(scheduled);
     if (next) setNextTaskState(next);
-
-    // The geofence is armed for whichever task currently needs arrival
-    // detection: a pending task takes priority, otherwise an active task
-    // with a linked location.
-    const target = pending ?? (saved?.locationId ? saved : null);
-    if (target?.locationId) {
-      const place = getPlaceById(target.locationId);
-      if (place) startGeofence(place.latitude, place.longitude);
-    }
 
     const t = saved
       ? setTimeout(() => setShowOpenMessage(false), 4000)
@@ -125,11 +138,21 @@ export default function Home() {
     };
   }, []);
 
+  // Re-arm the foreground watcher every time the set of scheduled places
+  // changes. An empty list stops the watcher entirely.
+  useEffect(() => {
+    setGeofenceTargets(geofenceTargets);
+    return () => {
+      // Don't stop on unmount — the arrival callback persists with the
+      // page, and re-mounts will replace the target list anyway.
+    };
+  }, [geofenceTargets]);
+
   // Refresh task state from storage whenever the geofence fires arrival.
   useEffect(() => {
     return onArrival(() => {
       setTaskState(getTask());
-      setPendingTaskState(getPendingTask());
+      setScheduledTasks(getScheduledTasks());
       setNextTaskState(getNextTask());
       const active = getTask();
       if (active && !isRunning) {
@@ -182,19 +205,37 @@ export default function Home() {
 
   // Requests location + notification permission and starts the foreground
   // watcher for the given place. Returns true on success.
-  const armGeofenceFor = async (place: Place): Promise<boolean> => {
-    const granted = await requestGeofencePermissions();
-    if (!granted) return false;
-    startGeofence(place.latitude, place.longitude);
-    return true;
+  // Request browser geofence permissions. The watcher itself is managed
+  // by the effect that mirrors scheduledTasks to setGeofenceTargets, so
+  // we just need a yes/no here. The `place` argument is unused now but
+  // kept on the signature so call sites stay symmetric.
+  const armGeofenceFor = async (_place: Place): Promise<boolean> => {
+    void _place;
+    return await requestGeofencePermissions();
   };
 
-  // Schedule a location-linked task as pending and start its geofence.
-  const schedulePendingTask = (taskToSchedule: Task) => {
-    setPendingTask(taskToSchedule);
-    setPendingTaskState(taskToSchedule);
+  // Append a location-linked task to the scheduled list and confirm with
+  // a toast. The geofence target list is re-armed by the effect that
+  // watches scheduledTasks.
+  const scheduleTask = (taskToSchedule: Task) => {
+    if (!taskToSchedule.locationId) return;
+    const entry: ScheduledTask = {
+      id:
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      title: taskToSchedule.title,
+      currentDuration: taskToSchedule.currentDuration,
+      locationId: taskToSchedule.locationId,
+      createdAt: Date.now(),
+    };
+    addScheduledTask(entry);
+    setScheduledTasks((prev) => [...prev, entry]);
     setTaskTitle("");
     setSelectedPlaceId(null);
+    toast({
+      description: "تمت إضافة المهمة إلى المهام المجدولة 📋",
+    });
   };
 
   // Activate a task immediately, stripping any locationId (used when the
@@ -222,7 +263,7 @@ export default function Home() {
       }
       const armed = await armGeofenceFor(place);
       if (armed) {
-        schedulePendingTask(candidate);
+        scheduleTask(candidate);
       } else {
         // Open the modal asking the user how to proceed.
         setPermissionDialog({ task: candidate, place });
@@ -246,7 +287,7 @@ export default function Home() {
     if (!permissionDialog) return;
     const armed = await armGeofenceFor(permissionDialog.place);
     if (armed) {
-      schedulePendingTask(permissionDialog.task);
+      scheduleTask(permissionDialog.task);
       setPermissionDialog(null);
     }
     // Otherwise, leave the dialog open so the user can retry or cancel.
@@ -255,21 +296,6 @@ export default function Home() {
   const dialogCancel = () => {
     setPermissionDialog(null);
   };
-
-  // Discard the pending task and stop the foreground watcher.
-  const cancelPendingTask = () => {
-    stopGeofence();
-    clearPendingTask();
-    setPendingTaskState(null);
-  };
-
-  // Resolve the linked place for the active and pending tasks.
-  const pendingPlace = useMemo(
-    () => (pendingTaskState?.locationId
-      ? getPlaceById(pendingTaskState.locationId)
-      : null),
-    [pendingTaskState]
-  );
 
   const startTimer = () => {
     clearReminders();
@@ -317,12 +343,9 @@ export default function Home() {
     setTask(activating);
     setSecondsLeft((activating.currentDuration || DEFAULT_MINUTES) * 60);
     scheduleReminders();
-    // If the activated task itself has a location, re-arm the geofence
-    // so a future arrival at *that* place can fire too.
-    if (activating.locationId) {
-      const place = getPlaceById(activating.locationId);
-      if (place) startGeofence(place.latitude, place.longitude);
-    }
+    // The watcher is driven by scheduledTasks; the activated task isn't
+    // in that list, so no re-arm is needed here. The user is presumably
+    // already at the place anyway.
   };
 
   const dismissNextTask = () => {
@@ -442,42 +465,7 @@ export default function Home() {
       )}
 
       <div className="w-full max-w-md text-center space-y-6">
-        {!task && pendingTaskState ? (
-          // Waiting state: a location-linked task is scheduled.
-          <>
-            <h1 className="text-4xl font-semibold">NeuroPilot</h1>
-            <div
-              className="rounded-2xl px-6 py-8 space-y-3"
-              style={{
-                backgroundColor: "#E8F0EC",
-                direction: "rtl",
-              }}
-            >
-              <p className="text-4xl">📍</p>
-              <p
-                className="text-2xl font-bold"
-                style={{ color: theme.colors.text }}
-              >
-                {pendingTaskState.title}
-              </p>
-              <p className="text-base" style={{ color: "#2E6B4A" }}>
-                ستبدأ مهمتك لما توصل
-                {pendingPlace ? ` "${pendingPlace.name}"` : " للمكان"}
-              </p>
-            </div>
-            <button
-              onClick={cancelPendingTask}
-              className="w-full rounded-xl py-3 text-base font-medium border-2"
-              style={{
-                borderColor: "#A0AFAA",
-                color: "#6B7E80",
-                backgroundColor: "transparent",
-              }}
-            >
-              إلغاء وتغيير المهمة
-            </button>
-          </>
-        ) : !task ? (
+        {!task ? (
           <>
             <div className="relative flex items-center justify-center w-full">
               <h1 className="text-4xl font-semibold">NeuroPilot</h1>
