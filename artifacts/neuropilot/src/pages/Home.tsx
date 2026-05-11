@@ -1,8 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { clearTask, getTask, setTask, Task } from "@/lib/storage";
+import {
+  clearNextTask,
+  clearPendingTask,
+  clearTask,
+  getNextTask,
+  getPendingTask,
+  getTask,
+  setPendingTask,
+  setTask,
+  Task,
+} from "@/lib/storage";
 import { getPlaceById, getPlaces, type Place } from "@/lib/places";
 import {
+  onArrival,
   requestPermissions as requestGeofencePermissions,
   startGeofence,
   stopGeofence,
@@ -46,9 +57,16 @@ export default function Home() {
   const [showOpenMessage, setShowOpenMessage] = useState(false);
   const [places, setPlaces] = useState<Place[]>([]);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
+  const [pendingTaskState, setPendingTaskState] = useState<Task | null>(null);
+  const [nextTaskState, setNextTaskState] = useState<Task | null>(null);
+  const [permissionDialog, setPermissionDialog] = useState<{
+    task: Task;
+    place: Place;
+  } | null>(null);
 
-  // Keep screen awake while a task is loaded (browser wake lock).
-  useWakeLock(task !== null);
+  // Keep screen awake while a task or pending task is loaded
+  // (so the foreground geofence keeps polling).
+  useWakeLock(task !== null || pendingTaskState !== null);
 
   const [, navigate] = useLocation();
 
@@ -74,24 +92,51 @@ export default function Home() {
     });
   };
 
-  // On mount: load saved task + show gentle open message if one exists.
-  // If the saved task is linked to a place, re-arm the foreground geofence
-  // since watchPosition does not persist across page loads.
+  // On mount: load active + pending + next task. Re-arm the foreground
+  // geofence for whichever task is waiting on arrival, since
+  // watchPosition does not persist across page loads.
   useEffect(() => {
     const saved = getTask();
+    const pending = getPendingTask();
+    const next = getNextTask();
+
     if (saved) {
       setTaskState(saved);
       setSecondsLeft((saved.currentDuration || DEFAULT_MINUTES) * 60);
       setShowOpenMessage(true);
-      if (saved.locationId) {
-        const place = getPlaceById(saved.locationId);
-        if (place) startGeofence(place.latitude, place.longitude);
-      }
-      const t = setTimeout(() => setShowOpenMessage(false), 4000);
-      return () => clearTimeout(t);
     }
-    return undefined;
+    if (pending) setPendingTaskState(pending);
+    if (next) setNextTaskState(next);
+
+    // The geofence is armed for whichever task currently needs arrival
+    // detection: a pending task takes priority, otherwise an active task
+    // with a linked location.
+    const target = pending ?? (saved?.locationId ? saved : null);
+    if (target?.locationId) {
+      const place = getPlaceById(target.locationId);
+      if (place) startGeofence(place.latitude, place.longitude);
+    }
+
+    const t = saved
+      ? setTimeout(() => setShowOpenMessage(false), 4000)
+      : null;
+    return () => {
+      if (t) clearTimeout(t);
+    };
   }, []);
+
+  // Refresh task state from storage whenever the geofence fires arrival.
+  useEffect(() => {
+    return onArrival(() => {
+      setTaskState(getTask());
+      setPendingTaskState(getPendingTask());
+      setNextTaskState(getNextTask());
+      const active = getTask();
+      if (active && !isRunning) {
+        setSecondsLeft((active.currentDuration || DEFAULT_MINUTES) * 60);
+      }
+    });
+  }, [isRunning]);
 
   // Cleanup reminders on unmount
   useEffect(() => () => clearReminders(), []);
@@ -135,42 +180,96 @@ export default function Home() {
     locationId: placeId ?? undefined,
   });
 
-  // Returns true if geofence was successfully armed, false otherwise.
-  const armGeofenceFor = async (placeId: string | null): Promise<boolean> => {
-    if (!placeId) return false;
-    const place = getPlaceById(placeId);
-    if (!place) return false;
+  // Requests location + notification permission and starts the foreground
+  // watcher for the given place. Returns true on success.
+  const armGeofenceFor = async (place: Place): Promise<boolean> => {
     const granted = await requestGeofencePermissions();
-    if (!granted) {
-      window.alert(
-        "اتضافت المهمة بدون تنبيه موقع. محتاج تفعّل تصريح الموقع والإشعارات علشان يشتغل التنبيه عند الوصول.",
-      );
-      return false;
-    }
+    if (!granted) return false;
     startGeofence(place.latitude, place.longitude);
     return true;
   };
 
-  const addTask = async () => {
-    if (!taskTitle.trim()) return;
-    const nextTask = createTask(taskTitle, selectedPlaceId);
-    saveTask(nextTask);
+  // Schedule a location-linked task as pending and start its geofence.
+  const schedulePendingTask = (taskToSchedule: Task) => {
+    setPendingTask(taskToSchedule);
+    setPendingTaskState(taskToSchedule);
     setTaskTitle("");
-    setSecondsLeft(duration * 60);
-    scheduleReminders();
-    if (selectedPlaceId) {
-      // armGeofenceFor requests Notification + Geolocation permission.
-      const armed = await armGeofenceFor(selectedPlaceId);
-      if (!armed) {
-        // Strip locationId so badge/state stay consistent with reality.
-        saveTask({ ...nextTask, locationId: undefined });
-      }
-    } else {
-      // No place linked — just prime the Notification permission for reminders.
-      await requestPermission();
-    }
     setSelectedPlaceId(null);
   };
+
+  // Activate a task immediately, stripping any locationId (used when the
+  // user starts a location-linked task as a normal one after permission
+  // denial).
+  const activateImmediately = (taskToActivate: Task) => {
+    const stripped: Task = { ...taskToActivate, locationId: undefined };
+    saveTask(stripped);
+    setTaskTitle("");
+    setSelectedPlaceId(null);
+    setSecondsLeft(duration * 60);
+    scheduleReminders();
+  };
+
+  const addTask = async () => {
+    if (!taskTitle.trim()) return;
+    const candidate = createTask(taskTitle, selectedPlaceId);
+
+    if (selectedPlaceId) {
+      const place = getPlaceById(selectedPlaceId);
+      if (!place) {
+        // Place vanished between selection and add — fall back to normal.
+        activateImmediately(candidate);
+        return;
+      }
+      const armed = await armGeofenceFor(place);
+      if (armed) {
+        schedulePendingTask(candidate);
+      } else {
+        // Open the modal asking the user how to proceed.
+        setPermissionDialog({ task: candidate, place });
+      }
+      return;
+    }
+
+    // No place linked — keep the existing immediate-start behaviour.
+    activateImmediately(candidate);
+    await requestPermission();
+  };
+
+  // Permission dialog actions.
+  const dialogStartAsNormal = () => {
+    if (!permissionDialog) return;
+    activateImmediately(permissionDialog.task);
+    setPermissionDialog(null);
+  };
+
+  const dialogRequestPermission = async () => {
+    if (!permissionDialog) return;
+    const armed = await armGeofenceFor(permissionDialog.place);
+    if (armed) {
+      schedulePendingTask(permissionDialog.task);
+      setPermissionDialog(null);
+    }
+    // Otherwise, leave the dialog open so the user can retry or cancel.
+  };
+
+  const dialogCancel = () => {
+    setPermissionDialog(null);
+  };
+
+  // Discard the pending task and stop the foreground watcher.
+  const cancelPendingTask = () => {
+    stopGeofence();
+    clearPendingTask();
+    setPendingTaskState(null);
+  };
+
+  // Resolve the linked place for the active and pending tasks.
+  const pendingPlace = useMemo(
+    () => (pendingTaskState?.locationId
+      ? getPlaceById(pendingTaskState.locationId)
+      : null),
+    [pendingTaskState]
+  );
 
   const startTimer = () => {
     clearReminders();
@@ -190,13 +289,45 @@ export default function Home() {
     clearReminders();
     stopGeofence();
     clearTask();
+    clearNextTask();
     setTaskState(null);
+    setNextTaskState(null);
     setShowDonePrompt(false);
     setShowOpenMessage(false);
     setIsRunning(false);
     setDuration(DEFAULT_MINUTES);
     setNextTaskTitle("");
     setSecondsLeft(DEFAULT_MINUTES * 60);
+  };
+
+  // Promote the queued next task to active (used when the user arrives
+  // at a place while already working on something else and decides to
+  // switch).
+  const activateNextTask = () => {
+    const activating = nextTaskState;
+    if (!activating) return;
+    clearReminders();
+    stopGeofence();
+    clearTask();
+    clearNextTask();
+    setNextTaskState(null);
+    setIsRunning(false);
+    setShowDonePrompt(false);
+    setTaskState(activating);
+    setTask(activating);
+    setSecondsLeft((activating.currentDuration || DEFAULT_MINUTES) * 60);
+    scheduleReminders();
+    // If the activated task itself has a location, re-arm the geofence
+    // so a future arrival at *that* place can fire too.
+    if (activating.locationId) {
+      const place = getPlaceById(activating.locationId);
+      if (place) startGeofence(place.latitude, place.longitude);
+    }
+  };
+
+  const dismissNextTask = () => {
+    clearNextTask();
+    setNextTaskState(null);
   };
 
   const switchTask = () => finishTask();
@@ -259,8 +390,94 @@ export default function Home() {
         </div>
       )}
 
+      {/* Permission-denied dialog for location-linked tasks. */}
+      {permissionDialog && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-6"
+          style={{ backgroundColor: "rgba(0,0,0,0.35)" }}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white p-6 space-y-4 shadow-xl"
+            style={{ direction: "rtl" }}
+          >
+            <h2
+              className="text-2xl font-bold"
+              style={{ color: theme.colors.text }}
+            >
+              تنبيه الموقع مش مفعّل
+            </h2>
+            <p className="text-base leading-7" style={{ color: "#4A5654" }}>
+              مش هينفع نسجّل المهمة كمهمة مجدولة لأن تصريح الموقع مش متاح.
+              عاوز تبدأها كمهمة عادية ولا تدّى الإذن وتفضل مجدولة؟
+            </p>
+            <div className="space-y-3 pt-1">
+              <button
+                onClick={dialogStartAsNormal}
+                className="w-full rounded-xl py-3 text-lg font-semibold text-white"
+                style={{ backgroundColor: theme.colors.primary }}
+              >
+                ابدأ الآن
+              </button>
+              <button
+                onClick={dialogRequestPermission}
+                className="w-full rounded-xl py-3 text-lg font-semibold border-2"
+                style={{
+                  borderColor: theme.colors.primary,
+                  color: theme.colors.primary,
+                  backgroundColor: "transparent",
+                }}
+              >
+                إعطاء الإذن للموقع
+              </button>
+              <button
+                onClick={dialogCancel}
+                className="w-full rounded-xl py-3 text-base font-medium"
+                style={{ color: "#6B7E80" }}
+              >
+                إلغاء المهمة
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="w-full max-w-md text-center space-y-6">
-        {!task ? (
+        {!task && pendingTaskState ? (
+          // Waiting state: a location-linked task is scheduled.
+          <>
+            <h1 className="text-4xl font-semibold">NeuroPilot</h1>
+            <div
+              className="rounded-2xl px-6 py-8 space-y-3"
+              style={{
+                backgroundColor: "#E8F0EC",
+                direction: "rtl",
+              }}
+            >
+              <p className="text-4xl">📍</p>
+              <p
+                className="text-2xl font-bold"
+                style={{ color: theme.colors.text }}
+              >
+                {pendingTaskState.title}
+              </p>
+              <p className="text-base" style={{ color: "#2E6B4A" }}>
+                ستبدأ مهمتك لما توصل
+                {pendingPlace ? ` "${pendingPlace.name}"` : " للمكان"}
+              </p>
+            </div>
+            <button
+              onClick={cancelPendingTask}
+              className="w-full rounded-xl py-3 text-base font-medium border-2"
+              style={{
+                borderColor: "#A0AFAA",
+                color: "#6B7E80",
+                backgroundColor: "transparent",
+              }}
+            >
+              إلغاء وتغيير المهمة
+            </button>
+          </>
+        ) : !task ? (
           <>
             <div className="relative flex items-center justify-center w-full">
               <h1 className="text-4xl font-semibold">NeuroPilot</h1>
@@ -320,6 +537,45 @@ export default function Home() {
           </>
         ) : (
           <>
+            {nextTaskState && (
+              <div
+                className="rounded-2xl p-4 space-y-3"
+                style={{
+                  backgroundColor: "#E8F0EC",
+                  borderColor: theme.colors.accent,
+                  borderWidth: 1,
+                  direction: "rtl",
+                }}
+              >
+                <p
+                  className="text-base font-medium"
+                  style={{ color: "#2E6B4A" }}
+                >
+                  📍 وصلت! مهمتك الجاية جاهزة:{" "}
+                  <span className="font-bold">{nextTaskState.title}</span>
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={activateNextTask}
+                    className="flex-1 rounded-lg py-2 text-base font-semibold text-white"
+                    style={{ backgroundColor: theme.colors.accent }}
+                  >
+                    ابدأها دلوقتى
+                  </button>
+                  <button
+                    onClick={dismissNextTask}
+                    className="rounded-lg px-4 py-2 text-base font-medium"
+                    style={{
+                      color: "#6B7E80",
+                      borderColor: "#A0AFAA",
+                      borderWidth: 1,
+                    }}
+                  >
+                    احذفها
+                  </button>
+                </div>
+              </div>
+            )}
             <h1 className="text-4xl font-semibold">{task.title}</h1>
             {linkedPlace && (
               <div
