@@ -4,7 +4,13 @@
 // so a true mobile-style geofence isn't available — this is the closest we
 // can get.
 
-import { getTask } from "./storage";
+import {
+  clearPendingTask,
+  getPendingTask,
+  getTask,
+  setNextTask,
+  setTask,
+} from "./storage";
 
 const RADIUS_METERS = 100;
 const EARTH_RADIUS_M = 6_371_000;
@@ -12,6 +18,19 @@ const EARTH_RADIUS_M = 6_371_000;
 let watchId: number | null = null;
 let target: { latitude: number; longitude: number } | null = null;
 let alreadyEntered = false;
+let arrivalCallback: (() => void) | null = null;
+
+/**
+ * Subscribe to geofence arrival events so the UI can refresh its task state
+ * from storage. Returns an unsubscribe function. Only one subscriber is
+ * supported at a time (parity with the mobile single-screen app).
+ */
+export function onArrival(cb: () => void): () => void {
+  arrivalCallback = cb;
+  return () => {
+    if (arrivalCallback === cb) arrivalCallback = null;
+  };
+}
 
 function distanceMeters(
   a: { latitude: number; longitude: number },
@@ -28,11 +47,34 @@ function distanceMeters(
   return 2 * EARTH_RADIUS_M * Math.asin(Math.sqrt(h));
 }
 
-function fireArrivalNotification(): void {
+function notify(body: string): void {
   if (!("Notification" in window) || Notification.permission !== "granted") return;
-  const task = getTask();
-  const title = task?.title ?? "مهمتك";
-  new Notification("NeuroPilot 📍", { body: `حان وقت مهمتك: ${title}` });
+  new Notification("NeuroPilot 📍", { body });
+}
+
+// Mirrors artifacts/neuropilot-mobile/lib/geofence.ts handleArrival logic.
+// Reads pending + active state from storage and either promotes the
+// pending task to active, or queues it as the next task when the user is
+// already busy with something else.
+function handleArrival(): void {
+  const pending = getPendingTask();
+  const active = getTask();
+
+  if (pending && !active) {
+    setTask(pending);
+    clearPendingTask();
+    notify(`حان وقت مهمتك: ${pending.title}`);
+  } else if (pending && active) {
+    setNextTask(pending);
+    clearPendingTask();
+    notify(`وصلت! مهمتك الجاية جاهزة: ${pending.title}`);
+  } else if (active) {
+    notify(`وصلت! حان وقت مهمتك: ${active.title}`);
+  } else {
+    notify("وصلت لمكانك");
+  }
+
+  arrivalCallback?.();
 }
 
 export async function requestPermissions(): Promise<boolean> {
@@ -67,7 +109,7 @@ export function startGeofence(latitude: number, longitude: number): void {
       });
       if (d <= RADIUS_METERS) {
         alreadyEntered = true;
-        fireArrivalNotification();
+        handleArrival();
         stopGeofence();
       }
     },
