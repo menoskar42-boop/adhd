@@ -75,6 +75,7 @@ export default function Home() {
   const [brainDumpOpen, setBrainDumpOpen] = useState(false);
   const [brainDumpText, setBrainDumpText] = useState("");
   const [celebrate, setCelebrate] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [todayCount, setTodayCount] = useState<number>(() => getTodayCount());
   const [streak, setStreak] = useState<number>(() => getStreak());
 
@@ -454,6 +455,72 @@ export default function Home() {
         </div>
       )}
 
+      {/* Bottom sheet for the secondary timer actions. ADHD-friendly:
+          one primary action in view, everything else hidden behind a
+          deliberate tap. Reset and Change Task confirm before firing. */}
+      {moreMenuOpen && task && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center"
+          style={{ backgroundColor: "rgba(0,0,0,0.35)" }}
+          onClick={() => setMoreMenuOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-t-2xl bg-white p-6 space-y-3"
+            style={{ direction: "rtl" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => {
+                if (!window.confirm("تعيد التايمر من الأول؟")) return;
+                resetTimer();
+                setMoreMenuOpen(false);
+              }}
+              className="w-full rounded-xl py-3 text-lg font-semibold border-2"
+              style={{
+                borderColor: theme.colors.primary,
+                color: theme.colors.primary,
+              }}
+            >
+              إعادة التايمر
+            </button>
+            <button
+              onClick={() => {
+                stopEarly();
+                setMoreMenuOpen(false);
+              }}
+              className="w-full rounded-xl py-3 text-lg font-semibold border-2"
+              style={{
+                borderColor: theme.colors.accent,
+                color: theme.colors.accent,
+              }}
+            >
+              وقف الجلسة بدرى
+            </button>
+            <button
+              onClick={() => {
+                if (!window.confirm("تخلّى المهمة الحالية؟")) return;
+                switchTask();
+                setMoreMenuOpen(false);
+              }}
+              className="w-full rounded-xl py-3 text-lg font-semibold"
+              style={{
+                border: `2px dashed ${theme.colors.text}`,
+                color: theme.colors.text,
+              }}
+            >
+              غيّر المهمة
+            </button>
+            <button
+              onClick={() => setMoreMenuOpen(false)}
+              className="w-full rounded-xl py-2 text-base font-medium"
+              style={{ color: "#6B7E80" }}
+            >
+              إلغاء
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Celebration overlay — fires after a completed session as a
           dopamine reward. Pointer-events-none so it never blocks taps. */}
       {celebrate && (
@@ -800,14 +867,6 @@ export default function Home() {
                 )}
 
                 <button
-                  onClick={resetTimer}
-                  className="w-full rounded-xl py-4 text-2xl font-semibold"
-                  style={{ border: `2px solid ${theme.colors.primary}` }}
-                >
-                  Reset
-                </button>
-
-                <button
                   onClick={markDistracted}
                   className="w-full rounded-xl py-3 text-base font-medium"
                   style={{
@@ -820,19 +879,11 @@ export default function Home() {
                 </button>
 
                 <button
-                  onClick={stopEarly}
-                  className="w-full rounded-xl py-4 text-2xl font-semibold"
-                  style={{ border: `2px solid ${theme.colors.accent}` }}
+                  onClick={() => setMoreMenuOpen(true)}
+                  className="text-sm font-medium underline-offset-4 hover:underline"
+                  style={{ color: "#6B7E80", direction: "rtl" }}
                 >
-                  Stop Early
-                </button>
-
-                <button
-                  onClick={switchTask}
-                  className="w-full rounded-xl py-4 text-2xl font-semibold"
-                  style={{ border: `2px dashed ${theme.colors.text}` }}
-                >
-                  Change Task
+                  ⋮ المزيد
                 </button>
               </div>
             )}
