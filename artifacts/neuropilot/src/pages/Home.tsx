@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { clearTask, getTask, setTask, Task } from "@/lib/storage";
+import { getPlaces, type Place } from "@/lib/places";
 import { theme } from "@/lib/theme";
 import { useWakeLock } from "@/hooks/use-wake-lock";
 
@@ -38,11 +39,19 @@ export default function Home() {
   const [isRunning, setIsRunning] = useState(false);
   const [showDonePrompt, setShowDonePrompt] = useState(false);
   const [showOpenMessage, setShowOpenMessage] = useState(false);
+  const [places, setPlaces] = useState<Place[]>([]);
+  const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
 
   // Keep screen awake while a task is loaded (browser wake lock).
   useWakeLock(task !== null);
 
   const [, navigate] = useLocation();
+
+  // Reload saved places whenever we land on the no-task screen
+  // (e.g., after returning from /places).
+  useEffect(() => {
+    if (!task) setPlaces(getPlaces());
+  }, [task]);
 
   const reminderTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
@@ -227,6 +236,36 @@ export default function Home() {
               className="w-full rounded-xl border-2 px-4 py-4 text-2xl outline-none"
               style={{ borderColor: theme.colors.primary }}
             />
+            {places.length > 0 && (
+              <div className="w-full space-y-2" style={{ direction: "rtl" }}>
+                <p className="text-sm font-medium" style={{ color: "#6B7E80" }}>
+                  تنبيه عند وصولك لـ:
+                </p>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {places.map((place) => {
+                    const active = selectedPlaceId === place.id;
+                    return (
+                      <button
+                        key={place.id}
+                        onClick={() =>
+                          setSelectedPlaceId(active ? null : place.id)
+                        }
+                        className="shrink-0 rounded-full border-2 px-3.5 py-2 text-sm font-medium transition-colors"
+                        style={{
+                          borderColor: theme.colors.primary,
+                          backgroundColor: active
+                            ? theme.colors.primary
+                            : "transparent",
+                          color: active ? "#fff" : theme.colors.primary,
+                        }}
+                      >
+                        📍 {place.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <button
               onClick={addTask}
               className="w-full rounded-xl py-4 text-2xl font-semibold text-white"
