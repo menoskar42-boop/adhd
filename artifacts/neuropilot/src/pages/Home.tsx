@@ -28,6 +28,7 @@ import {
 import { theme } from "@/lib/theme";
 import { useWakeLock } from "@/hooks/use-wake-lock";
 import { useToast } from "@/hooks/use-toast";
+import { useTheme } from "@/hooks/use-theme";
 
 const DEFAULT_MINUTES = 3;
 const MAX_MINUTES = 25;
@@ -78,6 +79,7 @@ export default function Home() {
     place: Place;
   } | null>(null);
   const { toast } = useToast();
+  const { mode: themeMode, toggle: toggleTheme } = useTheme();
   const [brainDumpOpen, setBrainDumpOpen] = useState(false);
   const [brainDumpText, setBrainDumpText] = useState("");
   const [celebrate, setCelebrate] = useState(false);
@@ -725,6 +727,15 @@ export default function Home() {
             )}
             <div className="relative flex items-center justify-center w-full">
               <h1 className="text-4xl font-semibold">NeuroPilot</h1>
+              <button
+                onClick={toggleTheme}
+                aria-label={
+                  themeMode === "dark" ? "وضع نهارى" : "وضع ليلى"
+                }
+                className="absolute left-0 p-1.5 text-xl hover:opacity-70 transition-opacity"
+              >
+                {themeMode === "dark" ? "☀️" : "🌙"}
+              </button>
               <button
                 onClick={() => navigate("/places")}
                 aria-label="Saved places"
