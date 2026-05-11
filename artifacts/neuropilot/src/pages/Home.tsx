@@ -7,7 +7,6 @@ import {
   getNextTask,
   getPendingTask,
   getTask,
-  setNextTask,
   setPendingTask,
   setTask,
   Task,
@@ -290,13 +289,45 @@ export default function Home() {
     clearReminders();
     stopGeofence();
     clearTask();
+    clearNextTask();
     setTaskState(null);
+    setNextTaskState(null);
     setShowDonePrompt(false);
     setShowOpenMessage(false);
     setIsRunning(false);
     setDuration(DEFAULT_MINUTES);
     setNextTaskTitle("");
     setSecondsLeft(DEFAULT_MINUTES * 60);
+  };
+
+  // Promote the queued next task to active (used when the user arrives
+  // at a place while already working on something else and decides to
+  // switch).
+  const activateNextTask = () => {
+    const activating = nextTaskState;
+    if (!activating) return;
+    clearReminders();
+    stopGeofence();
+    clearTask();
+    clearNextTask();
+    setNextTaskState(null);
+    setIsRunning(false);
+    setShowDonePrompt(false);
+    setTaskState(activating);
+    setTask(activating);
+    setSecondsLeft((activating.currentDuration || DEFAULT_MINUTES) * 60);
+    scheduleReminders();
+    // If the activated task itself has a location, re-arm the geofence
+    // so a future arrival at *that* place can fire too.
+    if (activating.locationId) {
+      const place = getPlaceById(activating.locationId);
+      if (place) startGeofence(place.latitude, place.longitude);
+    }
+  };
+
+  const dismissNextTask = () => {
+    clearNextTask();
+    setNextTaskState(null);
   };
 
   const switchTask = () => finishTask();
@@ -506,6 +537,45 @@ export default function Home() {
           </>
         ) : (
           <>
+            {nextTaskState && (
+              <div
+                className="rounded-2xl p-4 space-y-3"
+                style={{
+                  backgroundColor: "#E8F0EC",
+                  borderColor: theme.colors.accent,
+                  borderWidth: 1,
+                  direction: "rtl",
+                }}
+              >
+                <p
+                  className="text-base font-medium"
+                  style={{ color: "#2E6B4A" }}
+                >
+                  📍 وصلت! مهمتك الجاية جاهزة:{" "}
+                  <span className="font-bold">{nextTaskState.title}</span>
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={activateNextTask}
+                    className="flex-1 rounded-lg py-2 text-base font-semibold text-white"
+                    style={{ backgroundColor: theme.colors.accent }}
+                  >
+                    ابدأها دلوقتى
+                  </button>
+                  <button
+                    onClick={dismissNextTask}
+                    className="rounded-lg px-4 py-2 text-base font-medium"
+                    style={{
+                      color: "#6B7E80",
+                      borderColor: "#A0AFAA",
+                      borderWidth: 1,
+                    }}
+                  >
+                    احذفها
+                  </button>
+                </div>
+              </div>
+            )}
             <h1 className="text-4xl font-semibold">{task.title}</h1>
             {linkedPlace && (
               <div
