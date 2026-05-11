@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "wouter";
 import { clearTask, getTask, setTask, Task } from "@/lib/storage";
 import { theme } from "@/lib/theme";
 import { useWakeLock } from "@/hooks/use-wake-lock";
@@ -40,6 +41,8 @@ export default function Home() {
 
   // Keep screen awake while a task is loaded (browser wake lock).
   useWakeLock(task !== null);
+
+  const [, navigate] = useLocation();
 
   const reminderTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
@@ -206,7 +209,16 @@ export default function Home() {
       <div className="w-full max-w-md text-center space-y-6">
         {!task ? (
           <>
-            <h1 className="text-4xl font-semibold">NeuroPilot</h1>
+            <div className="relative flex items-center justify-center w-full">
+              <h1 className="text-4xl font-semibold">NeuroPilot</h1>
+              <button
+                onClick={() => navigate("/places")}
+                aria-label="Saved places"
+                className="absolute right-0 p-1.5 text-2xl hover:opacity-70 transition-opacity"
+              >
+                📍
+              </button>
+            </div>
             <input
               value={taskTitle}
               onChange={(e) => setTaskTitle(e.target.value)}
