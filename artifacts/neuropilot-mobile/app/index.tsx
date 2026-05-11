@@ -49,6 +49,7 @@ function permissionDeniedAlert(reason: PermissionDeniedReason | null): { title: 
 
 const DEFAULT_MINUTES = 10;
 const MAX_MINUTES = 25;
+const DURATION_PRESETS = [5, 10, 15, 20, 25] as const;
 const POLL_INTERVAL_MS = 2000;
 
 function fmt(s: number): string {
@@ -61,6 +62,7 @@ export default function Home() {
   const insets = useSafeAreaInsets();
 
   const [draft, setDraft] = useState("");
+  const [duration, setDuration] = useState<number>(DEFAULT_MINUTES);
   const [task, setTaskState] = useState<Task | null>(null);
   const [pendingTask, setPendingTaskState] = useState<Task | null>(null);
   const [nextTask, setNextTaskState] = useState<Task | null>(null);
@@ -171,7 +173,7 @@ export default function Home() {
     const newTask: Task = {
       title: draft.trim(),
       sessions: [],
-      currentDuration: DEFAULT_MINUTES,
+      currentDuration: duration,
       locationId: selectedPlaceId ?? undefined,
     };
 
@@ -189,7 +191,7 @@ export default function Home() {
             "تنبيهات الموقع بتحتاج نسخة التطوير (Dev Build) ومش بتشتغل في Expo Go.\n\nهتتضاف المهمة بدون تنبيه موقع."
           );
           await save({ ...newTask, locationId: undefined });
-          setSecondsLeft(DEFAULT_MINUTES * 60);
+          setSecondsLeft(duration * 60);
         } else {
           await new Promise<void>((resolve) => {
             Alert.alert(
@@ -205,7 +207,7 @@ export default function Home() {
                         // Permission denied — save as active task without geofence so work isn't lost
                         const taskWithoutLocation: Task = { ...newTask, locationId: undefined };
                         await save(taskWithoutLocation);
-                        setSecondsLeft(DEFAULT_MINUTES * 60);
+                        setSecondsLeft(duration * 60);
                         const { title, message } = permissionDeniedAlert(reason);
                         Alert.alert(
                           title,
@@ -228,7 +230,7 @@ export default function Home() {
                     } catch {
                       // Unexpected native error — save task without geofence so work isn't lost
                       await save({ ...newTask, locationId: undefined });
-                      setSecondsLeft(DEFAULT_MINUTES * 60);
+                      setSecondsLeft(duration * 60);
                       Alert.alert(
                         "خطأ غير متوقع",
                         "حصل مشكلة في تفعيل تنبيه الموقع. اتضافت المهمة بدون تنبيه موقع."
@@ -250,7 +252,7 @@ export default function Home() {
     } else {
       // No location — activate immediately as usual
       await save(newTask);
-      setSecondsLeft(DEFAULT_MINUTES * 60);
+      setSecondsLeft(duration * 60);
     }
 
     setSelectedPlaceId(null);
@@ -497,6 +499,39 @@ export default function Home() {
               returnKeyType="done"
               style={styles.input}
             />
+
+            {/* Duration presets */}
+            <View style={styles.durationWrapper}>
+              <Text style={styles.durationLabel}>مدة الجلسة (دقيقة):</Text>
+              <View style={styles.durationRow}>
+                {DURATION_PRESETS.map((mins) => {
+                  const active = duration === mins;
+                  return (
+                    <Pressable
+                      key={mins}
+                      onPress={() => {
+                        Haptics.selectionAsync();
+                        setDuration(mins);
+                      }}
+                      style={({ pressed }) => [
+                        styles.durationBtn,
+                        active && styles.durationBtnActive,
+                        { opacity: pressed ? 0.75 : 1 },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.durationBtnText,
+                          active && styles.durationBtnTextActive,
+                        ]}
+                      >
+                        {mins}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
 
             {/* Place chips */}
             {places.length > 0 && (
@@ -1248,5 +1283,40 @@ const styles = StyleSheet.create({
     color: "#6B7E80",
     fontSize: 17,
     fontFamily: "Inter_500Medium",
+  },
+  durationWrapper: {
+    width: "100%",
+    gap: 8,
+  },
+  durationLabel: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: "#6B7E80",
+    textAlign: "right",
+  },
+  durationRow: {
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "space-between",
+  },
+  durationBtn: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderColor: "#4A6FA5",
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: "center",
+    backgroundColor: "transparent",
+  },
+  durationBtnActive: {
+    backgroundColor: "#4A6FA5",
+  },
+  durationBtnText: {
+    fontSize: 16,
+    fontFamily: "Inter_600SemiBold",
+    color: "#4A6FA5",
+  },
+  durationBtnTextActive: {
+    color: "#fff",
   },
 });

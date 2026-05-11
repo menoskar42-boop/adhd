@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "wouter";
 import { clearTask, getTask, setTask, Task } from "@/lib/storage";
+import { getPlaceById, getPlaces, type Place } from "@/lib/places";
+import {
+  requestPermissions as requestGeofencePermissions,
+  startGeofence,
+  stopGeofence,
+} from "@/lib/geofence";
 import { theme } from "@/lib/theme";
 import { useWakeLock } from "@/hooks/use-wake-lock";
 
@@ -37,9 +44,19 @@ export default function Home() {
   const [isRunning, setIsRunning] = useState(false);
   const [showDonePrompt, setShowDonePrompt] = useState(false);
   const [showOpenMessage, setShowOpenMessage] = useState(false);
+  const [places, setPlaces] = useState<Place[]>([]);
+  const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
 
   // Keep screen awake while a task is loaded (browser wake lock).
   useWakeLock(task !== null);
+
+  const [, navigate] = useLocation();
+
+  // Reload saved places whenever we land on the no-task screen
+  // (e.g., after returning from /places).
+  useEffect(() => {
+    if (!task) setPlaces(getPlaces());
+  }, [task]);
 
   const reminderTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
@@ -57,14 +74,19 @@ export default function Home() {
     });
   };
 
-  // On mount: load saved task + show gentle open message if one exists
+  // On mount: load saved task + show gentle open message if one exists.
+  // If the saved task is linked to a place, re-arm the foreground geofence
+  // since watchPosition does not persist across page loads.
   useEffect(() => {
     const saved = getTask();
     if (saved) {
       setTaskState(saved);
       setSecondsLeft((saved.currentDuration || DEFAULT_MINUTES) * 60);
       setShowOpenMessage(true);
-      // Hide open message after 4 seconds
+      if (saved.locationId) {
+        const place = getPlaceById(saved.locationId);
+        if (place) startGeofence(place.latitude, place.longitude);
+      }
       const t = setTimeout(() => setShowOpenMessage(false), 4000);
       return () => clearTimeout(t);
     }
@@ -101,20 +123,53 @@ export default function Home() {
     setTask(nextTask);
   };
 
-  const createTask = (title: string): Task => ({
+  const linkedPlace = useMemo(
+    () => (task?.locationId ? getPlaceById(task.locationId) : null),
+    [task]
+  );
+
+  const createTask = (title: string, placeId?: string | null): Task => ({
     title: title.trim(),
     sessions: [],
     currentDuration: duration,
+    locationId: placeId ?? undefined,
   });
+
+  // Returns true if geofence was successfully armed, false otherwise.
+  const armGeofenceFor = async (placeId: string | null): Promise<boolean> => {
+    if (!placeId) return false;
+    const place = getPlaceById(placeId);
+    if (!place) return false;
+    const granted = await requestGeofencePermissions();
+    if (!granted) {
+      window.alert(
+        "اتضافت المهمة بدون تنبيه موقع. محتاج تفعّل تصريح الموقع والإشعارات علشان يشتغل التنبيه عند الوصول.",
+      );
+      return false;
+    }
+    startGeofence(place.latitude, place.longitude);
+    return true;
+  };
 
   const addTask = async () => {
     if (!taskTitle.trim()) return;
-    await requestPermission();
-    const nextTask = createTask(taskTitle);
+    const nextTask = createTask(taskTitle, selectedPlaceId);
     saveTask(nextTask);
     setTaskTitle("");
     setSecondsLeft(duration * 60);
     scheduleReminders();
+    if (selectedPlaceId) {
+      // armGeofenceFor requests Notification + Geolocation permission.
+      const armed = await armGeofenceFor(selectedPlaceId);
+      if (!armed) {
+        // Strip locationId so badge/state stay consistent with reality.
+        saveTask({ ...nextTask, locationId: undefined });
+      }
+    } else {
+      // No place linked — just prime the Notification permission for reminders.
+      await requestPermission();
+    }
+    setSelectedPlaceId(null);
   };
 
   const startTimer = () => {
@@ -133,6 +188,7 @@ export default function Home() {
 
   const finishTask = () => {
     clearReminders();
+    stopGeofence();
     clearTask();
     setTaskState(null);
     setShowDonePrompt(false);
@@ -206,7 +262,16 @@ export default function Home() {
       <div className="w-full max-w-md text-center space-y-6">
         {!task ? (
           <>
-            <h1 className="text-4xl font-semibold">NeuroPilot</h1>
+            <div className="relative flex items-center justify-center w-full">
+              <h1 className="text-4xl font-semibold">NeuroPilot</h1>
+              <button
+                onClick={() => navigate("/places")}
+                aria-label="Saved places"
+                className="absolute right-0 p-1.5 text-2xl hover:opacity-70 transition-opacity"
+              >
+                📍
+              </button>
+            </div>
             <input
               value={taskTitle}
               onChange={(e) => setTaskTitle(e.target.value)}
@@ -215,6 +280,36 @@ export default function Home() {
               className="w-full rounded-xl border-2 px-4 py-4 text-2xl outline-none"
               style={{ borderColor: theme.colors.primary }}
             />
+            {places.length > 0 && (
+              <div className="w-full space-y-2" style={{ direction: "rtl" }}>
+                <p className="text-sm font-medium" style={{ color: "#6B7E80" }}>
+                  تنبيه عند وصولك لـ:
+                </p>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {places.map((place) => {
+                    const active = selectedPlaceId === place.id;
+                    return (
+                      <button
+                        key={place.id}
+                        onClick={() =>
+                          setSelectedPlaceId(active ? null : place.id)
+                        }
+                        className="shrink-0 rounded-full border-2 px-3.5 py-2 text-sm font-medium transition-colors"
+                        style={{
+                          borderColor: theme.colors.primary,
+                          backgroundColor: active
+                            ? theme.colors.primary
+                            : "transparent",
+                          color: active ? "#fff" : theme.colors.primary,
+                        }}
+                      >
+                        📍 {place.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <button
               onClick={addTask}
               className="w-full rounded-xl py-4 text-2xl font-semibold text-white"
@@ -226,6 +321,18 @@ export default function Home() {
         ) : (
           <>
             <h1 className="text-4xl font-semibold">{task.title}</h1>
+            {linkedPlace && (
+              <div
+                className="inline-block rounded-xl px-3.5 py-2 text-sm font-medium"
+                style={{
+                  backgroundColor: "#E8F0EC",
+                  color: "#2E6B4A",
+                  direction: "rtl",
+                }}
+              >
+                📍 تنبيه عند وصولك: {linkedPlace.name}
+              </div>
+            )}
             <p className="text-6xl font-bold">{formatTime(secondsLeft)}</p>
 
             {showDonePrompt ? (
