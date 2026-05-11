@@ -31,7 +31,13 @@ import { useToast } from "@/hooks/use-toast";
 
 const DEFAULT_MINUTES = 3;
 const MAX_MINUTES = 25;
-const REMINDER_MSG = "بس 3 دقايق ونبدأ";
+// Tiered reminder copy. ADHD brains habituate to identical pings; the
+// 7- and 17-minute messages escalate gently without scolding.
+const REMINDERS = [
+  "بس 3 دقايق ونبدأ 💙",
+  "لسه واقف هنا — جرّب 5 دقايق بس وشوف ✨",
+  "مفيش مشكلة لو اتأخرت، لكن مهمتك مستنية 🌿",
+];
 const OPEN_MSG = "نبدأ 3 دقايق بس";
 
 function formatTime(totalSeconds: number): string {
@@ -139,10 +145,12 @@ export default function Home() {
 
   const scheduleReminders = () => {
     clearReminders();
-    // 2 min → 7 min (2+5) → 17 min (2+5+10)
+    // 2 min → 7 min (2+5) → 17 min (2+5+10). Each tier uses its own
+    // message so the user doesn't habituate to a single recurring ping.
     const delays = [2 * 60 * 1000, 7 * 60 * 1000, 17 * 60 * 1000];
-    delays.forEach((ms) => {
-      reminderTimers.current.push(setTimeout(() => notify(REMINDER_MSG), ms));
+    delays.forEach((ms, idx) => {
+      const message = REMINDERS[idx] ?? REMINDERS[REMINDERS.length - 1];
+      reminderTimers.current.push(setTimeout(() => notify(message), ms));
     });
   };
 
