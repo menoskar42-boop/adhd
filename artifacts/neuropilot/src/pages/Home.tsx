@@ -64,7 +64,6 @@ async function requestPermission() {
 
 export default function Home() {
   const [taskTitle, setTaskTitle] = useState("");
-  const [nextTaskTitle, setNextTaskTitle] = useState("");
   const [duration, setDuration] = useState(DEFAULT_MINUTES);
   const [task, setTaskState] = useState<Task | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(DEFAULT_MINUTES * 60);
@@ -399,7 +398,6 @@ export default function Home() {
     setShowOpenMessage(false);
     setIsRunning(false);
     setDuration(DEFAULT_MINUTES);
-    setNextTaskTitle("");
     setSecondsLeft(DEFAULT_MINUTES * 60);
   };
 
@@ -431,17 +429,6 @@ export default function Home() {
   };
 
   const switchTask = () => finishTask();
-
-  const startNextTask = async () => {
-    if (!nextTaskTitle.trim()) return;
-    await requestPermission();
-    const nextTask = createTask(nextTaskTitle);
-    saveTask(nextTask);
-    setNextTaskTitle("");
-    setShowDonePrompt(false);
-    setSecondsLeft(duration * 60);
-    scheduleReminders();
-  };
 
   const stopEarly = () => {
     if (!task) return;
@@ -946,57 +933,31 @@ export default function Home() {
             )}
 
             {showDonePrompt ? (
-              <div className="space-y-4">
-                <p className="text-3xl font-semibold">Done?</p>
+              <div className="space-y-3" style={{ direction: "rtl" }}>
+                <p className="text-3xl font-semibold">خلصت الجلسة! 🎉</p>
                 <button
                   onClick={() => continueSession(false)}
-                  className="w-full rounded-xl py-4 text-2xl font-semibold text-white"
-                  style={{ backgroundColor: theme.colors.primary, direction: "rtl" }}
+                  className="w-full rounded-xl py-4 text-xl font-semibold text-white"
+                  style={{ backgroundColor: theme.colors.primary }}
                 >
-                  كمّل نفس المدة ({currentMinutes}م)
+                  كمّل {currentMinutes} دقيقة تانية
+                </button>
+                <button
+                  onClick={finishTask}
+                  className="w-full rounded-xl py-4 text-xl font-semibold text-white"
+                  style={{ backgroundColor: theme.colors.accent }}
+                >
+                  خلصت ✓
                 </button>
                 {currentMinutes < MAX_MINUTES && (
                   <button
                     onClick={() => continueSession(true)}
-                    className="w-full rounded-xl py-3 text-base font-medium"
-                    style={{
-                      border: `2px solid ${theme.colors.primary}`,
-                      color: theme.colors.primary,
-                      direction: "rtl",
-                    }}
+                    className="w-full text-sm font-medium underline-offset-4 hover:underline pt-1"
+                    style={{ color: "#6B7E80" }}
                   >
                     ↑ ارفع المدة لـ {Math.min(currentMinutes + 5, MAX_MINUTES)}م
                   </button>
                 )}
-                <button
-                  onClick={finishTask}
-                  className="w-full rounded-xl py-4 text-2xl font-semibold"
-                  style={{ border: `2px solid ${theme.colors.accent}` }}
-                >
-                  Finish Task
-                </button>
-                <input
-                  value={nextTaskTitle}
-                  onChange={(e) => setNextTaskTitle(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && startNextTask()}
-                  placeholder="Next task"
-                  className="w-full rounded-xl border-2 px-4 py-4 text-xl outline-none"
-                  style={{ borderColor: theme.colors.primary }}
-                />
-                <button
-                  onClick={startNextTask}
-                  className="w-full rounded-xl py-4 text-2xl font-semibold text-white"
-                  style={{ backgroundColor: theme.colors.accent }}
-                >
-                  Start Next Task
-                </button>
-                <button
-                  onClick={switchTask}
-                  className="w-full rounded-xl py-4 text-xl font-semibold"
-                  style={{ border: `2px dashed ${theme.colors.text}` }}
-                >
-                  Change Task Manually
-                </button>
               </div>
             ) : (
               <div className="space-y-4">
