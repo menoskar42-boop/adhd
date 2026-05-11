@@ -21,6 +21,7 @@ import { clearTask, getTask, setTask, Task } from "@/lib/storage";
 
 const DEFAULT_MINUTES = 10;
 const MAX_MINUTES = 25;
+const DURATION_PRESETS = [5, 10, 15, 20, 25] as const;
 
 function fmt(s: number): string {
   return `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60)
@@ -32,6 +33,7 @@ export default function Home() {
   const insets = useSafeAreaInsets();
 
   const [draft, setDraft] = useState("");
+  const [duration, setDuration] = useState<number>(DEFAULT_MINUTES);
   const [task, setTaskState] = useState<Task | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(DEFAULT_MINUTES * 60);
   const [isRunning, setIsRunning] = useState(false);
@@ -103,11 +105,11 @@ export default function Home() {
     const next: Task = {
       title: draft.trim(),
       sessions: [],
-      currentDuration: DEFAULT_MINUTES,
+      currentDuration: duration,
       locationId: selectedPlaceId ?? undefined,
     };
     await save(next);
-    setSecondsLeft(DEFAULT_MINUTES * 60);
+    setSecondsLeft(duration * 60);
     setDraft("");
     Keyboard.dismiss();
 
@@ -247,6 +249,39 @@ export default function Home() {
               returnKeyType="done"
               style={styles.input}
             />
+
+            {/* Duration presets */}
+            <View style={styles.durationWrapper}>
+              <Text style={styles.durationLabel}>مدة الجلسة (دقيقة):</Text>
+              <View style={styles.durationRow}>
+                {DURATION_PRESETS.map((mins) => {
+                  const active = duration === mins;
+                  return (
+                    <Pressable
+                      key={mins}
+                      onPress={() => {
+                        Haptics.selectionAsync();
+                        setDuration(mins);
+                      }}
+                      style={({ pressed }) => [
+                        styles.durationBtn,
+                        active && styles.durationBtnActive,
+                        { opacity: pressed ? 0.75 : 1 },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.durationBtnText,
+                          active && styles.durationBtnTextActive,
+                        ]}
+                      >
+                        {mins}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
 
             {/* Place chips */}
             {places.length > 0 && (
@@ -553,5 +588,40 @@ const styles = StyleSheet.create({
     color: "#7FB069",
     fontSize: 17,
     fontFamily: "Inter_500Medium",
+  },
+  durationWrapper: {
+    width: "100%",
+    gap: 8,
+  },
+  durationLabel: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: "#6B7E80",
+    textAlign: "right",
+  },
+  durationRow: {
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "space-between",
+  },
+  durationBtn: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderColor: "#4A6FA5",
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: "center",
+    backgroundColor: "transparent",
+  },
+  durationBtnActive: {
+    backgroundColor: "#4A6FA5",
+  },
+  durationBtnText: {
+    fontSize: 16,
+    fontFamily: "Inter_600SemiBold",
+    color: "#4A6FA5",
+  },
+  durationBtnTextActive: {
+    color: "#fff",
   },
 });

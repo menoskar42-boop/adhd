@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { clearTask, getTask, setTask, Task } from "@/lib/storage";
-import { getPlaces, type Place } from "@/lib/places";
+import { getPlaceById, getPlaces, type Place } from "@/lib/places";
+import {
+  requestPermissions as requestGeofencePermissions,
+  startGeofence,
+  stopGeofence,
+} from "@/lib/geofence";
 import { theme } from "@/lib/theme";
 import { useWakeLock } from "@/hooks/use-wake-lock";
 
@@ -69,14 +74,19 @@ export default function Home() {
     });
   };
 
-  // On mount: load saved task + show gentle open message if one exists
+  // On mount: load saved task + show gentle open message if one exists.
+  // If the saved task is linked to a place, re-arm the foreground geofence
+  // since watchPosition does not persist across page loads.
   useEffect(() => {
     const saved = getTask();
     if (saved) {
       setTaskState(saved);
       setSecondsLeft((saved.currentDuration || DEFAULT_MINUTES) * 60);
       setShowOpenMessage(true);
-      // Hide open message after 4 seconds
+      if (saved.locationId) {
+        const place = getPlaceById(saved.locationId);
+        if (place) startGeofence(place.latitude, place.longitude);
+      }
       const t = setTimeout(() => setShowOpenMessage(false), 4000);
       return () => clearTimeout(t);
     }
@@ -113,20 +123,42 @@ export default function Home() {
     setTask(nextTask);
   };
 
-  const createTask = (title: string): Task => ({
+  const linkedPlace = useMemo(
+    () => (task?.locationId ? getPlaceById(task.locationId) : null),
+    [task]
+  );
+
+  const createTask = (title: string, placeId?: string | null): Task => ({
     title: title.trim(),
     sessions: [],
     currentDuration: duration,
+    locationId: placeId ?? undefined,
   });
+
+  const armGeofenceFor = async (placeId: string | null) => {
+    if (!placeId) return;
+    const place = getPlaceById(placeId);
+    if (!place) return;
+    const granted = await requestGeofencePermissions();
+    if (granted) {
+      startGeofence(place.latitude, place.longitude);
+    } else {
+      window.alert(
+        "محتاج تفعّل تصريح الموقع والإشعارات علشان يشتغل التنبيه عند الوصول.",
+      );
+    }
+  };
 
   const addTask = async () => {
     if (!taskTitle.trim()) return;
     await requestPermission();
-    const nextTask = createTask(taskTitle);
+    const nextTask = createTask(taskTitle, selectedPlaceId);
     saveTask(nextTask);
     setTaskTitle("");
     setSecondsLeft(duration * 60);
     scheduleReminders();
+    await armGeofenceFor(selectedPlaceId);
+    setSelectedPlaceId(null);
   };
 
   const startTimer = () => {
@@ -145,6 +177,7 @@ export default function Home() {
 
   const finishTask = () => {
     clearReminders();
+    stopGeofence();
     clearTask();
     setTaskState(null);
     setShowDonePrompt(false);
@@ -277,6 +310,18 @@ export default function Home() {
         ) : (
           <>
             <h1 className="text-4xl font-semibold">{task.title}</h1>
+            {linkedPlace && (
+              <div
+                className="inline-block rounded-xl px-3.5 py-2 text-sm font-medium"
+                style={{
+                  backgroundColor: "#E8F0EC",
+                  color: "#2E6B4A",
+                  direction: "rtl",
+                }}
+              >
+                📍 تنبيه عند وصولك: {linkedPlace.name}
+              </div>
+            )}
             <p className="text-6xl font-bold">{formatTime(secondsLeft)}</p>
 
             {showDonePrompt ? (
