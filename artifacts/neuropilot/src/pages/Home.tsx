@@ -454,9 +454,14 @@ export default function Home() {
     toast({ description: "ولا يهمك — 5 دقايق بس ونرجع." });
   };
 
-  const completeSession = () => {
+  // Continue the same task. `bump` controls whether the next session
+  // grows the duration (legacy pomodoro-style) or holds steady. ADHD
+  // users often prefer a flat cadence; the choice is theirs.
+  const continueSession = (bump: boolean) => {
     if (!task) return;
-    const nextDuration = Math.min(currentMinutes + 5, MAX_MINUTES);
+    const nextDuration = bump
+      ? Math.min(currentMinutes + 5, MAX_MINUTES)
+      : currentMinutes;
     const nextTask: Task = {
       ...task,
       sessions: [...task.sessions, { duration: currentMinutes, completed: true }],
@@ -917,12 +922,25 @@ export default function Home() {
               <div className="space-y-4">
                 <p className="text-3xl font-semibold">Done?</p>
                 <button
-                  onClick={completeSession}
-                  className="w-full rounded-xl py-4 text-2xl font-semibold"
-                  style={{ border: `2px solid ${theme.colors.primary}` }}
+                  onClick={() => continueSession(false)}
+                  className="w-full rounded-xl py-4 text-2xl font-semibold text-white"
+                  style={{ backgroundColor: theme.colors.primary, direction: "rtl" }}
                 >
-                  Continue Next Session
+                  كمّل نفس المدة ({currentMinutes}م)
                 </button>
+                {currentMinutes < MAX_MINUTES && (
+                  <button
+                    onClick={() => continueSession(true)}
+                    className="w-full rounded-xl py-3 text-base font-medium"
+                    style={{
+                      border: `2px solid ${theme.colors.primary}`,
+                      color: theme.colors.primary,
+                      direction: "rtl",
+                    }}
+                  >
+                    ↑ ارفع المدة لـ {Math.min(currentMinutes + 5, MAX_MINUTES)}م
+                  </button>
+                )}
                 <button
                   onClick={finishTask}
                   className="w-full rounded-xl py-4 text-2xl font-semibold"
