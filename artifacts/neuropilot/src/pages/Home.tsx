@@ -522,6 +522,15 @@ export default function Home() {
             >
               Start Now
             </button>
+            {scheduledTasks.length > 0 && (
+              <button
+                onClick={() => navigate("/scheduled")}
+                className="text-base font-medium underline-offset-4 hover:underline"
+                style={{ color: theme.colors.primary, direction: "rtl" }}
+              >
+                📋 المهام المجدولة ({scheduledTasks.length})
+              </button>
+            )}
           </>
         ) : (
           <>
