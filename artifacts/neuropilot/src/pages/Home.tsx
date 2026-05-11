@@ -14,6 +14,7 @@ import {
 import { getPlaceById, getPlaces, type Place } from "@/lib/places";
 import { addThought } from "@/lib/thoughts";
 import { haptics } from "@/lib/haptics";
+import { getTopTemplates, recordTaskTitle } from "@/lib/templates";
 import {
   getStreak,
   getTodayCount,
@@ -86,6 +87,7 @@ export default function Home() {
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [intention, setIntention] = useState("");
   const [intentionOpen, setIntentionOpen] = useState(false);
+  const [templates, setTemplates] = useState<string[]>(() => getTopTemplates(5));
   const [now, setNow] = useState<Date>(() => new Date());
 
   // Refresh the wall clock every 15s so end-of-session estimates stay
@@ -324,6 +326,8 @@ export default function Home() {
   const addTask = async () => {
     if (!taskTitle.trim()) return;
     haptics.medium();
+    recordTaskTitle(taskTitle);
+    setTemplates(getTopTemplates(5));
     const candidate = createTask(taskTitle, selectedPlaceId);
 
     if (selectedPlaceId) {
@@ -747,6 +751,37 @@ export default function Home() {
               className="w-full rounded-xl border-2 px-4 py-4 text-2xl outline-none"
               style={{ borderColor: theme.colors.primary }}
             />
+            {templates.length > 0 && (
+              <div
+                className="w-full space-y-1.5"
+                style={{ direction: "rtl" }}
+              >
+                <p
+                  className="text-xs font-medium"
+                  style={{ color: "#6B7E80" }}
+                >
+                  مهام بتكتبها كتير:
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {templates.map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => {
+                        setTaskTitle(t);
+                        haptics.light();
+                      }}
+                      className="rounded-full border px-3 py-1 text-sm font-medium hover:opacity-80"
+                      style={{
+                        borderColor: theme.colors.primary,
+                        color: theme.colors.primary,
+                      }}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {!intentionOpen ? (
               <button
                 onClick={() => setIntentionOpen(true)}
