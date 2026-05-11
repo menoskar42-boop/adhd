@@ -13,6 +13,7 @@ import {
 } from "@/lib/storage";
 import { getPlaceById, getPlaces, type Place } from "@/lib/places";
 import { addThought } from "@/lib/thoughts";
+import { haptics } from "@/lib/haptics";
 import {
   getStreak,
   getTodayCount,
@@ -323,6 +324,7 @@ export default function Home() {
 
   const addTask = async () => {
     if (!taskTitle.trim()) return;
+    haptics.medium();
     const candidate = createTask(taskTitle, selectedPlaceId);
 
     if (selectedPlaceId) {
@@ -373,9 +375,13 @@ export default function Home() {
     setShowOpenMessage(false);
     if (secondsLeft === 0) setSecondsLeft(currentMinutes * 60);
     setIsRunning(true);
+    haptics.light();
   };
 
-  const pauseTimer = () => setIsRunning(false);
+  const pauseTimer = () => {
+    setIsRunning(false);
+    haptics.light();
+  };
 
   const resetTimer = () => {
     setIsRunning(false);
@@ -461,6 +467,7 @@ export default function Home() {
     setShowDonePrompt(false);
     setIsRunning(true);
     clearReminders();
+    haptics.warning();
     toast({ description: "ولا يهمك — 5 دقايق بس ونرجع." });
   };
 
@@ -487,6 +494,7 @@ export default function Home() {
     setStreak(getStreak());
     setCelebrate(true);
     setTimeout(() => setCelebrate(false), 2200);
+    haptics.success();
   };
 
   return (
