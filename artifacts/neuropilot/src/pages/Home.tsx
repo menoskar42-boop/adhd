@@ -1,8 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { clearTask, getTask, setTask, Task } from "@/lib/storage";
+import {
+  clearNextTask,
+  clearPendingTask,
+  clearTask,
+  getNextTask,
+  getPendingTask,
+  getTask,
+  setNextTask,
+  setPendingTask,
+  setTask,
+  Task,
+} from "@/lib/storage";
 import { getPlaceById, getPlaces, type Place } from "@/lib/places";
 import {
+  onArrival,
   requestPermissions as requestGeofencePermissions,
   startGeofence,
   stopGeofence,
@@ -46,9 +58,16 @@ export default function Home() {
   const [showOpenMessage, setShowOpenMessage] = useState(false);
   const [places, setPlaces] = useState<Place[]>([]);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
+  const [pendingTaskState, setPendingTaskState] = useState<Task | null>(null);
+  const [nextTaskState, setNextTaskState] = useState<Task | null>(null);
+  const [permissionDialog, setPermissionDialog] = useState<{
+    task: Task;
+    place: Place;
+  } | null>(null);
 
-  // Keep screen awake while a task is loaded (browser wake lock).
-  useWakeLock(task !== null);
+  // Keep screen awake while a task or pending task is loaded
+  // (so the foreground geofence keeps polling).
+  useWakeLock(task !== null || pendingTaskState !== null);
 
   const [, navigate] = useLocation();
 
@@ -74,24 +93,51 @@ export default function Home() {
     });
   };
 
-  // On mount: load saved task + show gentle open message if one exists.
-  // If the saved task is linked to a place, re-arm the foreground geofence
-  // since watchPosition does not persist across page loads.
+  // On mount: load active + pending + next task. Re-arm the foreground
+  // geofence for whichever task is waiting on arrival, since
+  // watchPosition does not persist across page loads.
   useEffect(() => {
     const saved = getTask();
+    const pending = getPendingTask();
+    const next = getNextTask();
+
     if (saved) {
       setTaskState(saved);
       setSecondsLeft((saved.currentDuration || DEFAULT_MINUTES) * 60);
       setShowOpenMessage(true);
-      if (saved.locationId) {
-        const place = getPlaceById(saved.locationId);
-        if (place) startGeofence(place.latitude, place.longitude);
-      }
-      const t = setTimeout(() => setShowOpenMessage(false), 4000);
-      return () => clearTimeout(t);
     }
-    return undefined;
+    if (pending) setPendingTaskState(pending);
+    if (next) setNextTaskState(next);
+
+    // The geofence is armed for whichever task currently needs arrival
+    // detection: a pending task takes priority, otherwise an active task
+    // with a linked location.
+    const target = pending ?? (saved?.locationId ? saved : null);
+    if (target?.locationId) {
+      const place = getPlaceById(target.locationId);
+      if (place) startGeofence(place.latitude, place.longitude);
+    }
+
+    const t = saved
+      ? setTimeout(() => setShowOpenMessage(false), 4000)
+      : null;
+    return () => {
+      if (t) clearTimeout(t);
+    };
   }, []);
+
+  // Refresh task state from storage whenever the geofence fires arrival.
+  useEffect(() => {
+    return onArrival(() => {
+      setTaskState(getTask());
+      setPendingTaskState(getPendingTask());
+      setNextTaskState(getNextTask());
+      const active = getTask();
+      if (active && !isRunning) {
+        setSecondsLeft((active.currentDuration || DEFAULT_MINUTES) * 60);
+      }
+    });
+  }, [isRunning]);
 
   // Cleanup reminders on unmount
   useEffect(() => () => clearReminders(), []);
