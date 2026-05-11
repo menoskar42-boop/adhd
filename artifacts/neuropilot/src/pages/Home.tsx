@@ -76,6 +76,35 @@ export default function Home() {
   const [brainDumpText, setBrainDumpText] = useState("");
   const [celebrate, setCelebrate] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [now, setNow] = useState<Date>(() => new Date());
+
+  // Refresh the wall clock every 15s so end-of-session estimates stay
+  // accurate without thrashing renders.
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 15_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const wallClock = useMemo(() => {
+    const h = now.getHours().toString().padStart(2, "0");
+    const m = now.getMinutes().toString().padStart(2, "0");
+    return `${h}:${m}`;
+  }, [now]);
+
+  const endTime = useMemo(() => {
+    if (!task) return null;
+    const end = new Date(Date.now() + secondsLeft * 1000);
+    const h = end.getHours().toString().padStart(2, "0");
+    const m = end.getMinutes().toString().padStart(2, "0");
+    return `${h}:${m}`;
+  }, [task, secondsLeft]);
+
+  const progressPct = useMemo(() => {
+    const total = (task?.currentDuration ?? DEFAULT_MINUTES) * 60;
+    if (total <= 0) return 0;
+    const elapsed = total - secondsLeft;
+    return Math.max(0, Math.min(100, (elapsed / total) * 100));
+  }, [task, secondsLeft]);
   const [todayCount, setTodayCount] = useState<number>(() => getTodayCount());
   const [streak, setStreak] = useState<number>(() => getStreak());
 
@@ -782,6 +811,12 @@ export default function Home() {
                 </div>
               </div>
             )}
+            <p
+              className="text-sm font-medium tabular-nums"
+              style={{ color: "#6B7E80" }}
+            >
+              🕐 {wallClock}
+            </p>
             <div className="relative flex items-center justify-center w-full">
               <h1 className="text-4xl font-semibold">{task.title}</h1>
               <button
@@ -804,7 +839,30 @@ export default function Home() {
                 📍 تنبيه عند وصولك: {linkedPlace.name}
               </div>
             )}
-            <p className="text-6xl font-bold">{formatTime(secondsLeft)}</p>
+            <p className="text-6xl font-bold tabular-nums">
+              {formatTime(secondsLeft)}
+            </p>
+            <div
+              className="w-full h-2 rounded-full overflow-hidden"
+              style={{ backgroundColor: "#E0E7E3" }}
+              aria-hidden="true"
+            >
+              <div
+                className="h-full transition-all duration-1000 ease-linear"
+                style={{
+                  width: `${progressPct}%`,
+                  backgroundColor: theme.colors.primary,
+                }}
+              />
+            </div>
+            {endTime && (
+              <p
+                className="text-sm font-medium tabular-nums"
+                style={{ color: "#6B7E80", direction: "rtl" }}
+              >
+                ينتهى الساعة {endTime}
+              </p>
+            )}
 
             {showDonePrompt ? (
               <div className="space-y-4">
