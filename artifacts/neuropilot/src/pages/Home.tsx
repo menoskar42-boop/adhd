@@ -135,29 +135,40 @@ export default function Home() {
     locationId: placeId ?? undefined,
   });
 
-  const armGeofenceFor = async (placeId: string | null) => {
-    if (!placeId) return;
+  // Returns true if geofence was successfully armed, false otherwise.
+  const armGeofenceFor = async (placeId: string | null): Promise<boolean> => {
+    if (!placeId) return false;
     const place = getPlaceById(placeId);
-    if (!place) return;
+    if (!place) return false;
     const granted = await requestGeofencePermissions();
-    if (granted) {
-      startGeofence(place.latitude, place.longitude);
-    } else {
+    if (!granted) {
       window.alert(
-        "محتاج تفعّل تصريح الموقع والإشعارات علشان يشتغل التنبيه عند الوصول.",
+        "اتضافت المهمة بدون تنبيه موقع. محتاج تفعّل تصريح الموقع والإشعارات علشان يشتغل التنبيه عند الوصول.",
       );
+      return false;
     }
+    startGeofence(place.latitude, place.longitude);
+    return true;
   };
 
   const addTask = async () => {
     if (!taskTitle.trim()) return;
-    await requestPermission();
     const nextTask = createTask(taskTitle, selectedPlaceId);
     saveTask(nextTask);
     setTaskTitle("");
     setSecondsLeft(duration * 60);
     scheduleReminders();
-    await armGeofenceFor(selectedPlaceId);
+    if (selectedPlaceId) {
+      // armGeofenceFor requests Notification + Geolocation permission.
+      const armed = await armGeofenceFor(selectedPlaceId);
+      if (!armed) {
+        // Strip locationId so badge/state stay consistent with reality.
+        saveTask({ ...nextTask, locationId: undefined });
+      }
+    } else {
+      // No place linked — just prime the Notification permission for reminders.
+      await requestPermission();
+    }
     setSelectedPlaceId(null);
   };
 
