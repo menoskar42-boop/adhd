@@ -78,14 +78,21 @@ function handleArrival(): void {
 }
 
 export async function requestPermissions(): Promise<boolean> {
+  // Notification permission is best-effort. The arrival notification is a
+  // nice-to-have — the in-app waiting screen and next-task banner are the
+  // primary UX. Crucially, on platforms where Notification is unavailable
+  // (e.g. iOS Safari in a non-PWA tab) or denied, we must NOT bail out
+  // here, otherwise the geolocation prompt below never fires.
   if ("Notification" in window && Notification.permission === "default") {
-    await Notification.requestPermission();
-  }
-  if (!("Notification" in window) || Notification.permission !== "granted") {
-    return false;
+    try {
+      await Notification.requestPermission();
+    } catch {
+      // Silently ignore — proceed to geolocation regardless.
+    }
   }
   if (!("geolocation" in navigator)) return false;
-  // Force a one-shot fix to trigger the browser's permission prompt.
+  // Trigger the browser's geolocation prompt. The result tells us whether
+  // the geofence can run.
   return new Promise<boolean>((resolve) => {
     navigator.geolocation.getCurrentPosition(
       () => resolve(true),
