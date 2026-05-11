@@ -12,6 +12,7 @@ import {
   Task,
 } from "@/lib/storage";
 import { getPlaceById, getPlaces, type Place } from "@/lib/places";
+import { addThought } from "@/lib/thoughts";
 import {
   type GeofenceTarget,
   onArrival,
@@ -66,6 +67,16 @@ export default function Home() {
     place: Place;
   } | null>(null);
   const { toast } = useToast();
+  const [brainDumpOpen, setBrainDumpOpen] = useState(false);
+  const [brainDumpText, setBrainDumpText] = useState("");
+
+  const saveThought = () => {
+    const saved = addThought(brainDumpText);
+    if (!saved) return;
+    setBrainDumpText("");
+    setBrainDumpOpen(false);
+    toast({ description: "تم حفظ الفكرة 💭 — كمّل مهمتك." });
+  };
 
   // Keep screen awake while a task is running or any scheduled task is
   // waiting on arrival (so the foreground geofence keeps polling).
@@ -413,6 +424,62 @@ export default function Home() {
         </div>
       )}
 
+      {/* Quick brain-dump capture — keeps the user's focus while parking
+          intrusive thoughts. */}
+      {brainDumpOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-6"
+          style={{ backgroundColor: "rgba(0,0,0,0.35)" }}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white p-6 space-y-4 shadow-xl"
+            style={{ direction: "rtl" }}
+          >
+            <h2
+              className="text-xl font-bold"
+              style={{ color: theme.colors.text }}
+            >
+              💭 فكرة سريعة
+            </h2>
+            <p className="text-sm" style={{ color: "#6B7E80" }}>
+              اكتب الفكرة وارجع لمهمتك. هتلاقيها بعدين فى صفحة "أفكارى".
+            </p>
+            <textarea
+              value={brainDumpText}
+              onChange={(e) => setBrainDumpText(e.target.value)}
+              placeholder="مثلاً: لازم أبعت إيميل لـ..."
+              rows={3}
+              autoFocus
+              className="w-full rounded-xl border-2 px-3 py-2 text-base outline-none resize-none bg-white"
+              style={{
+                borderColor: theme.colors.primary,
+                textAlign: "right",
+              }}
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={saveThought}
+                disabled={!brainDumpText.trim()}
+                className="flex-1 rounded-xl py-3 text-base font-semibold text-white disabled:opacity-50"
+                style={{ backgroundColor: theme.colors.primary }}
+              >
+                احفظ ورجّعنى للمهمة
+              </button>
+              <button
+                onClick={() => {
+                  setBrainDumpText("");
+                  setBrainDumpOpen(false);
+                }}
+                className="rounded-xl px-4 py-3 text-base font-medium"
+                style={{ color: "#6B7E80" }}
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Permission-denied dialog for location-linked tasks. */}
       {permissionDialog && (
         <div
@@ -531,6 +598,13 @@ export default function Home() {
                 📋 المهام المجدولة ({scheduledTasks.length})
               </button>
             )}
+            <button
+              onClick={() => navigate("/thoughts")}
+              className="text-sm font-medium underline-offset-4 hover:underline"
+              style={{ color: "#6B7E80", direction: "rtl" }}
+            >
+              💭 أفكارى
+            </button>
           </>
         ) : (
           <>
@@ -573,7 +647,16 @@ export default function Home() {
                 </div>
               </div>
             )}
-            <h1 className="text-4xl font-semibold">{task.title}</h1>
+            <div className="relative flex items-center justify-center w-full">
+              <h1 className="text-4xl font-semibold">{task.title}</h1>
+              <button
+                onClick={() => setBrainDumpOpen(true)}
+                aria-label="سجّل فكرة"
+                className="absolute right-0 p-1.5 text-2xl hover:opacity-70 transition-opacity"
+              >
+                💭
+              </button>
+            </div>
             {linkedPlace && (
               <div
                 className="inline-block rounded-xl px-3.5 py-2 text-sm font-medium"
