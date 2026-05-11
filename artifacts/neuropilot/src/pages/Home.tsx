@@ -14,6 +14,11 @@ import {
 import { getPlaceById, getPlaces, type Place } from "@/lib/places";
 import { addThought } from "@/lib/thoughts";
 import {
+  getStreak,
+  getTodayCount,
+  recordCompletedSession,
+} from "@/lib/stats";
+import {
   type GeofenceTarget,
   onArrival,
   requestPermissions as requestGeofencePermissions,
@@ -69,6 +74,9 @@ export default function Home() {
   const { toast } = useToast();
   const [brainDumpOpen, setBrainDumpOpen] = useState(false);
   const [brainDumpText, setBrainDumpText] = useState("");
+  const [celebrate, setCelebrate] = useState(false);
+  const [todayCount, setTodayCount] = useState<number>(() => getTodayCount());
+  const [streak, setStreak] = useState<number>(() => getStreak());
 
   const saveThought = () => {
     const saved = addThought(brainDumpText);
@@ -400,6 +408,13 @@ export default function Home() {
     saveTask(nextTask);
     setShowDonePrompt(false);
     setSecondsLeft(nextDuration * 60);
+    // Dopamine moment: record the completion and trigger the celebration
+    // overlay. Refresh streak/today so the welcome screen reflects it.
+    recordCompletedSession();
+    setTodayCount(getTodayCount());
+    setStreak(getStreak());
+    setCelebrate(true);
+    setTimeout(() => setCelebrate(false), 2200);
   };
 
   return (
@@ -421,6 +436,30 @@ export default function Home() {
           }}
         >
           {OPEN_MSG}
+        </div>
+      )}
+
+      {/* Celebration overlay — fires after a completed session as a
+          dopamine reward. Pointer-events-none so it never blocks taps. */}
+      {celebrate && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center pointer-events-none"
+          aria-live="polite"
+        >
+          <div
+            className="px-8 py-6 rounded-3xl shadow-2xl celebrate-pop"
+            style={{
+              backgroundColor: theme.colors.accent,
+              color: "#fff",
+              direction: "rtl",
+            }}
+          >
+            <p className="text-5xl text-center">🎉</p>
+            <p className="text-2xl font-bold mt-2 text-center">أحسنت!</p>
+            <p className="text-sm mt-1 text-center opacity-90">
+              جلسة {todayCount} النهارده {streak >= 2 ? `· 🔥 ${streak} أيام` : ""}
+            </p>
+          </div>
         </div>
       )}
 
@@ -534,6 +573,20 @@ export default function Home() {
       <div className="w-full max-w-md text-center space-y-6">
         {!task ? (
           <>
+            {(todayCount > 0 || streak > 0) && (
+              <div
+                className="inline-flex items-center gap-2 self-center rounded-full px-3 py-1 text-sm font-medium"
+                style={{
+                  backgroundColor: "#E8F0EC",
+                  color: "#2E6B4A",
+                  direction: "rtl",
+                }}
+              >
+                {streak >= 2 && <span>🔥 {streak} أيام</span>}
+                {streak >= 2 && todayCount > 0 && <span>·</span>}
+                {todayCount > 0 && <span>اليوم {todayCount} جلسة</span>}
+              </div>
+            )}
             <div className="relative flex items-center justify-center w-full">
               <h1 className="text-4xl font-semibold">NeuroPilot</h1>
               <button
