@@ -397,6 +397,21 @@ export default function Home() {
     setSecondsLeft(DEFAULT_MINUTES * 60);
   };
 
+  // Forgiving recovery: notice the distraction, shrink to a 5-minute
+  // warm-up window, and start immediately. Deliberately does NOT push a
+  // "failed" session onto the task — ADHD users need guilt-free re-entry.
+  const DISTRACTION_MINUTES = 5;
+  const markDistracted = () => {
+    if (!task) return;
+    const nextTask: Task = { ...task, currentDuration: DISTRACTION_MINUTES };
+    saveTask(nextTask);
+    setSecondsLeft(DISTRACTION_MINUTES * 60);
+    setShowDonePrompt(false);
+    setIsRunning(true);
+    clearReminders();
+    toast({ description: "ولا يهمك — 5 دقايق بس ونرجع." });
+  };
+
   const completeSession = () => {
     if (!task) return;
     const nextDuration = Math.min(currentMinutes + 5, MAX_MINUTES);
@@ -790,6 +805,18 @@ export default function Home() {
                   style={{ border: `2px solid ${theme.colors.primary}` }}
                 >
                   Reset
+                </button>
+
+                <button
+                  onClick={markDistracted}
+                  className="w-full rounded-xl py-3 text-base font-medium"
+                  style={{
+                    border: `2px solid ${theme.colors.accent}`,
+                    color: theme.colors.accent,
+                    direction: "rtl",
+                  }}
+                >
+                  🌀 شارد ذهنياً — رجّعنى بـ 5 دقايق
                 </button>
 
                 <button
