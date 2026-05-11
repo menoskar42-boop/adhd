@@ -52,8 +52,13 @@ export default function Scheduled() {
     return p?.name ?? "مكان محذوف";
   };
 
-  const handleDelete = (id: string) => {
-    if (!window.confirm("تحذف المهمة المجدولة دى؟")) return;
+  const handleLetGo = (id: string) => {
+    if (
+      !window.confirm(
+        "متخلّيها مش مشكلة 🌱 مش كل حاجة لازم تتعمل. تأكيد إنك سايبها؟",
+      )
+    )
+      return;
     deleteScheduledTask(id);
     setTasks(getScheduledTasks());
   };
@@ -126,12 +131,12 @@ export default function Scheduled() {
                       ✏️ تعديل
                     </button>
                     <button
-                      onClick={() => handleDelete(task.id)}
-                      aria-label="حذف"
+                      onClick={() => handleLetGo(task.id)}
+                      aria-label="تخلّى عنها"
                       className="rounded-lg px-3 py-1.5 text-sm font-medium"
-                      style={{ backgroundColor: "#FFE8E8", color: "#C0392B" }}
+                      style={{ backgroundColor: "#F5F0E8", color: "#8C7B5A" }}
                     >
-                      🗑️ حذف
+                      🌱 تخلّى عنها
                     </button>
                   </div>
                 </li>
