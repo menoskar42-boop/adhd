@@ -16,6 +16,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 // Register background geofence task at module load time
+import { ensureArrivalNotificationChannel } from "@/lib/geofence";
 import "@/lib/geofence";
 
 SplashScreen.preventAutoHideAsync();
@@ -32,6 +33,14 @@ function RootLayoutNav() {
       />
       <Stack.Screen
         name="map-picker"
+        options={{ presentation: "modal", headerShown: false }}
+      />
+      <Stack.Screen
+        name="scheduled"
+        options={{ presentation: "modal", headerShown: false }}
+      />
+      <Stack.Screen
+        name="thoughts"
         options={{ presentation: "modal", headerShown: false }}
       />
     </Stack>
@@ -51,6 +60,12 @@ export default function RootLayout() {
       SplashScreen.hideAsync();
     }
   }, [fontsLoaded, fontError]);
+
+  // Make sure the high-importance arrival channel exists before any
+  // geofence ping needs to use it. Idempotent on Android, no-op on iOS.
+  useEffect(() => {
+    ensureArrivalNotificationChannel();
+  }, []);
 
   if (!fontsLoaded && !fontError) return null;
 

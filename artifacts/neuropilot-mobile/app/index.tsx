@@ -1,9 +1,10 @@
 import * as Haptics from "expo-haptics";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { router, useFocusEffect } from "expo-router";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Animated,
   AppState,
   AppStateStatus,
   Keyboard,
@@ -20,19 +21,41 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { isExpoGo, isGeofenceActive, PermissionDeniedReason, requestPermissions, startGeofence, stopGeofence } from "@/lib/geofence";
+import {
+  type GeofenceTarget,
+  isExpoGo,
+  isGeofenceActive,
+  PermissionDeniedReason,
+  requestPermissions,
+  setGeofenceTargets,
+  startGeofence,
+  stopGeofence,
+} from "@/lib/geofence";
 import { getPlaces, Place } from "@/lib/places";
 import {
+  addScheduledTask,
   clearNextTask,
-  clearPendingTask,
   clearTask,
   getNextTask,
-  getPendingTask,
+  getScheduledTasks,
   getTask,
-  setPendingTask,
+  type ScheduledTask,
   setTask,
   Task,
 } from "@/lib/storage";
+import {
+  getStreak,
+  getTodayCount,
+  recordCompletedSession,
+} from "@/lib/stats";
+import { getTopTemplates, recordTaskTitle } from "@/lib/templates";
+import {
+  getStoredTheme,
+  paletteFor,
+  setStoredTheme,
+  type ThemeMode,
+} from "@/lib/theme";
+import { addThought } from "@/lib/thoughts";
 
 function permissionDeniedAlert(reason: PermissionDeniedReason | null): { title: string; message: string } {
   if (reason === "notifications") {
@@ -64,7 +87,7 @@ export default function Home() {
   const [draft, setDraft] = useState("");
   const [duration, setDuration] = useState<number>(DEFAULT_MINUTES);
   const [task, setTaskState] = useState<Task | null>(null);
-  const [pendingTask, setPendingTaskState] = useState<Task | null>(null);
+  const [scheduledTasks, setScheduledTasksState] = useState<ScheduledTask[]>([]);
   const [nextTask, setNextTaskState] = useState<Task | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(DEFAULT_MINUTES * 60);
   const [isRunning, setIsRunning] = useState(false);
@@ -76,6 +99,102 @@ export default function Home() {
   const [showChangePlaceModal, setShowChangePlaceModal] = useState(false);
   const [geofenceActive, setGeofenceActive] = useState(false);
 
+  // Brain-dump capture surface for ADHD users who get an intrusive
+  // thought mid-session and need to park it without breaking focus.
+  const [brainDumpOpen, setBrainDumpOpen] = useState(false);
+  const [brainDumpText, setBrainDumpText] = useState("");
+
+  // Optional "why now" the user can attach when creating a task.
+  const [intention, setIntention] = useState("");
+  const [intentionOpen, setIntentionOpen] = useState(false);
+
+  // Most-used task titles, surfaced as chips on the welcome screen.
+  const [templates, setTemplates] = useState<string[]>([]);
+  useEffect(() => {
+    getTopTemplates(5).then(setTemplates);
+  }, []);
+
+  // Theme mode toggle. Initial value reads from AsyncStorage, falling
+  // back to the OS preference via Appearance.
+  const [themeMode, setThemeMode] = useState<ThemeMode>("light");
+  useEffect(() => {
+    getStoredTheme().then(setThemeMode);
+  }, []);
+  const palette = paletteFor(themeMode);
+  const toggleTheme = () => {
+    const next: ThemeMode = themeMode === "dark" ? "light" : "dark";
+    setThemeMode(next);
+    setStoredTheme(next);
+    Haptics.selectionAsync();
+  };
+
+  // Dopamine reward state: today's completion count, streak across
+  // consecutive days, and a flash celebration card right after a
+  // completed session.
+  const [todayCount, setTodayCount] = useState(0);
+  const [streak, setStreak] = useState(0);
+  const [celebrate, setCelebrate] = useState(false);
+  const celebrateAnim = useRef(new Animated.Value(0)).current;
+
+  // Wall clock + end-time + linear progress for ADHD time blindness.
+  // The clock ticks every 15s; secondsLeft already triggers the
+  // progress bar's re-render.
+  const [now, setNow] = useState<Date>(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 15_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const refreshStats = useCallback(async () => {
+    const [t, s] = await Promise.all([getTodayCount(), getStreak()]);
+    setTodayCount(t);
+    setStreak(s);
+  }, []);
+
+  useEffect(() => {
+    refreshStats();
+  }, [refreshStats]);
+
+  const wallClock = useMemo(() => {
+    const h = now.getHours().toString().padStart(2, "0");
+    const m = now.getMinutes().toString().padStart(2, "0");
+    return `${h}:${m}`;
+  }, [now]);
+
+  const endTime = useMemo(() => {
+    if (!task) return null;
+    const end = new Date(Date.now() + secondsLeft * 1000);
+    const h = end.getHours().toString().padStart(2, "0");
+    const m = end.getMinutes().toString().padStart(2, "0");
+    return `${h}:${m}`;
+  }, [task, secondsLeft]);
+
+  const progressPct = useMemo(() => {
+    const total = (task?.currentDuration ?? DEFAULT_MINUTES) * 60;
+    if (total <= 0) return 0;
+    const elapsed = total - secondsLeft;
+    return Math.max(0, Math.min(100, (elapsed / total) * 100));
+  }, [task, secondsLeft]);
+
+  const showCelebration = () => {
+    setCelebrate(true);
+    celebrateAnim.setValue(0);
+    Animated.sequence([
+      Animated.spring(celebrateAnim, {
+        toValue: 1,
+        useNativeDriver: true,
+        damping: 12,
+        stiffness: 220,
+      }),
+      Animated.delay(1400),
+      Animated.timing(celebrateAnim, {
+        toValue: 0,
+        duration: 350,
+        useNativeDriver: true,
+      }),
+    ]).start(() => setCelebrate(false));
+  };
+
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -86,11 +205,12 @@ export default function Home() {
     setPlaces(await getPlaces());
   }, []);
 
-  // Read all storage state at once
+  // Read all storage state at once. getScheduledTasks() also runs the
+  // legacy pendingTask migration on its first call.
   const refreshState = useCallback(async () => {
-    const [saved, pending, next, gfActive] = await Promise.all([
+    const [saved, scheduled, next, gfActive] = await Promise.all([
       getTask(),
-      getPendingTask(),
+      getScheduledTasks(),
       getNextTask(),
       isGeofenceActive(),
     ]);
@@ -100,7 +220,7 @@ export default function Home() {
       }
       return saved;
     });
-    setPendingTaskState(pending);
+    setScheduledTasksState(scheduled);
     setNextTaskState(next);
     setGeofenceActive(gfActive);
   }, []);
@@ -133,6 +253,28 @@ export default function Home() {
       refreshState();
     }, [loadPlaces, refreshState])
   );
+
+  // Mirror the scheduled-tasks list to the native geofence: one target
+  // per unique linked place. An empty list stops the watcher entirely.
+  useEffect(() => {
+    if (isExpoGo()) return;
+    const seen = new Set<string>();
+    const targets: GeofenceTarget[] = [];
+    for (const t of scheduledTasks) {
+      if (seen.has(t.locationId)) continue;
+      const place = places.find((p) => p.id === t.locationId);
+      if (!place) continue;
+      seen.add(t.locationId);
+      targets.push({
+        placeId: place.id,
+        latitude: place.latitude,
+        longitude: place.longitude,
+      });
+    }
+    setGeofenceTargets(targets).then(async () => {
+      setGeofenceActive(await isGeofenceActive());
+    });
+  }, [scheduledTasks, places]);
 
   useEffect(() => {
     if (!isRunning) {
@@ -169,15 +311,20 @@ export default function Home() {
   const addTask = async () => {
     if (!draft.trim()) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    await recordTaskTitle(draft);
+    setTemplates(await getTopTemplates(5));
 
     const newTask: Task = {
       title: draft.trim(),
       sessions: [],
       currentDuration: duration,
       locationId: selectedPlaceId ?? undefined,
+      intention: intention.trim() ? intention.trim() : undefined,
     };
 
     setDraft("");
+    setIntention("");
+    setIntentionOpen(false);
     Keyboard.dismiss();
 
     if (selectedPlaceId) {
@@ -221,11 +368,17 @@ export default function Home() {
                           ]
                         );
                       } else {
-                        // Save as pending (not active) and start geofence
-                        await setPendingTask(newTask);
-                        setPendingTaskState(newTask);
-                        await startGeofence(place.latitude, place.longitude);
-                        setGeofenceActive(await isGeofenceActive());
+                        // Add to the scheduled list; the targets effect
+                        // re-arms the native geofence to include it.
+                        const entry: ScheduledTask = {
+                          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                          title: newTask.title,
+                          currentDuration: newTask.currentDuration,
+                          locationId: place.id,
+                          createdAt: Date.now(),
+                        };
+                        await addScheduledTask(entry);
+                        setScheduledTasksState((prev) => [...prev, entry]);
                       }
                     } catch {
                       // Unexpected native error — save task without geofence so work isn't lost
@@ -258,12 +411,13 @@ export default function Home() {
     setSelectedPlaceId(null);
   };
 
-  const cancelPendingTask = async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    await stopGeofence();
-    await clearPendingTask();
-    setPendingTaskState(null);
-    setGeofenceActive(false);
+  const saveThought = async () => {
+    const saved = await addThought(brainDumpText);
+    if (!saved) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setBrainDumpText("");
+    setBrainDumpOpen(false);
+    Alert.alert("تم حفظ الفكرة 💭", "كمّل مهمتك — هتلاقيها فى \"💭 أفكارى\".");
   };
 
   const startTimer = () => {
@@ -296,10 +450,30 @@ export default function Home() {
     setSecondsLeft(DEFAULT_MINUTES * 60);
   };
 
-  const completeSession = async () => {
+  // Forgiving recovery: notice the distraction, shrink to a 5-minute
+  // warm-up, and start immediately. Does NOT log a "failed" session —
+  // ADHD users need guilt-free re-entry, not a strike counter.
+  const DISTRACTION_MINUTES = 5;
+  const markDistracted = async () => {
     if (!task) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const nextDuration = Math.min(currentMinutes + 5, MAX_MINUTES);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    const next: Task = { ...task, currentDuration: DISTRACTION_MINUTES };
+    await save(next);
+    setSecondsLeft(DISTRACTION_MINUTES * 60);
+    setShowDonePrompt(false);
+    setIsRunning(true);
+    Alert.alert("ولا يهمك", "5 دقايق بس ونرجع.");
+  };
+
+  // Continue the same task. `bump` lets the user pick whether the next
+  // session grows the duration (legacy pomodoro ramp) or holds steady;
+  // ADHD users often prefer a flat cadence.
+  const continueSession = async (bump: boolean) => {
+    if (!task) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    const nextDuration = bump
+      ? Math.min(currentMinutes + 5, MAX_MINUTES)
+      : currentMinutes;
     const next: Task = {
       ...task,
       sessions: [...task.sessions, { duration: currentMinutes, completed: true }],
@@ -308,6 +482,9 @@ export default function Home() {
     await save(next);
     setShowDonePrompt(false);
     setSecondsLeft(nextDuration * 60);
+    await recordCompletedSession();
+    await refreshStats();
+    showCelebration();
   };
 
   const finishTask = async () => {
@@ -413,16 +590,11 @@ export default function Home() {
     setGeofenceActive(await isGeofenceActive());
   };
 
-  const bg = isRunning ? "#EAF1EC" : "#F5F7F6";
+  const bg = isRunning ? palette.runningBackground : palette.background;
 
   // Which place is linked to the active task
   const linkedPlace = task?.locationId
     ? places.find((p) => p.id === task.locationId)
-    : null;
-
-  // Which place is linked to the pending task
-  const pendingPlace = pendingTask?.locationId
-    ? places.find((p) => p.id === pendingTask.locationId)
     : null;
 
   return (
@@ -433,50 +605,71 @@ export default function Home() {
           { backgroundColor: bg, paddingTop: topPad, paddingBottom: botPad },
         ]}
       >
-        {/* ── WAITING STATE: pending task, no active task ── */}
-        {!task && pendingTask ? (
-          <View style={styles.center}>
-            <View style={styles.headerRow}>
-              <Text style={styles.logo} testID="logo">
-                NeuroPilot
+        {celebrate && (
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.celebrateOverlay,
+              {
+                opacity: celebrateAnim,
+                transform: [
+                  {
+                    scale: celebrateAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.6, 1],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <View style={styles.celebrateCard}>
+              <Text style={styles.celebrateEmoji}>🎉</Text>
+              <Text style={styles.celebrateTitle}>أحسنت!</Text>
+              <Text style={styles.celebrateSub}>
+                جلسة {todayCount} النهارده{streak >= 2 ? ` · 🔥 ${streak} أيام` : ""}
               </Text>
             </View>
+          </Animated.View>
+        )}
 
-            <View style={styles.waitingCard} testID="waiting-screen">
-              <Text style={styles.waitingEmoji}>📍</Text>
-              <Text style={styles.waitingTitle}>{pendingTask.title}</Text>
-              <Text style={styles.waitingBody}>
-                ستبدأ مهمتك لما توصل{pendingPlace ? ` "${pendingPlace.name}"` : " للمكان"}
-              </Text>
-              {geofenceActive && (
-                <View style={styles.waitingBadge}>
-                  <View style={styles.geofenceDot} />
-                  <Text style={styles.waitingBadgeText}>التنبيه نشط</Text>
-                </View>
-              )}
-            </View>
-
-            <Pressable
-              testID="cancel-pending-button"
-              onPress={cancelPendingTask}
-              style={({ pressed }) => [
-                styles.btn,
-                styles.btnOutlineNeutral,
-                { opacity: pressed ? 0.7 : 1 },
-              ]}
-            >
-              <Text style={styles.btnTextNeutral}>إلغاء وتغيير المهمة</Text>
-            </Pressable>
-          </View>
-
-        ) : !task ? (
+        {!task ? (
           /* ── EMPTY STATE: no task yet ── */
           <View style={styles.center}>
+            {(todayCount > 0 || streak >= 2) && (
+              <View style={styles.streakChip}>
+                {streak >= 2 && (
+                  <Text style={styles.streakChipText}>🔥 {streak} أيام</Text>
+                )}
+                {streak >= 2 && todayCount > 0 && (
+                  <Text style={styles.streakChipDot}>·</Text>
+                )}
+                {todayCount > 0 && (
+                  <Text style={styles.streakChipText}>
+                    اليوم {todayCount} جلسة
+                  </Text>
+                )}
+              </View>
+            )}
             {/* Header row: logo + places button */}
             <View style={styles.headerRow}>
               <Text style={styles.logo} testID="logo">
                 NeuroPilot
               </Text>
+              <Pressable
+                onPress={toggleTheme}
+                accessibilityLabel={
+                  themeMode === "dark" ? "وضع نهارى" : "وضع ليلى"
+                }
+                style={({ pressed }) => [
+                  styles.themeIconBtn,
+                  { opacity: pressed ? 0.6 : 1 },
+                ]}
+              >
+                <Text style={styles.themeIcon}>
+                  {themeMode === "dark" ? "☀️" : "🌙"}
+                </Text>
+              </Pressable>
               <Pressable
                 onPress={() => router.push("/places")}
                 style={({ pressed }) => [
@@ -499,6 +692,55 @@ export default function Home() {
               returnKeyType="done"
               style={styles.input}
             />
+
+            {templates.length > 0 && (
+              <View style={styles.templatesWrap}>
+                <Text style={styles.templatesLabel}>مهام بتكتبها كتير:</Text>
+                <View style={styles.templatesRow}>
+                  {templates.map((t) => (
+                    <Pressable
+                      key={t}
+                      onPress={() => {
+                        setDraft(t);
+                        Haptics.selectionAsync();
+                      }}
+                      style={({ pressed }) => [
+                        styles.templateChip,
+                        { opacity: pressed ? 0.7 : 1 },
+                      ]}
+                    >
+                      <Text style={styles.templateChipText}>{t}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {!intentionOpen ? (
+              <Pressable
+                onPress={() => setIntentionOpen(true)}
+                style={({ pressed }) => [
+                  styles.linkRow,
+                  { opacity: pressed ? 0.6 : 1 },
+                ]}
+              >
+                <Text style={styles.linkTextMuted}>
+                  💡 ليه دلوقتى؟ (اختيارى)
+                </Text>
+              </Pressable>
+            ) : (
+              <View style={styles.intentionWrap}>
+                <Text style={styles.intentionLabel}>💡 ليه دلوقتى؟</Text>
+                <TextInput
+                  value={intention}
+                  onChangeText={setIntention}
+                  placeholder="مثلاً: علشان أخلّى البيت مرتب قبل الضيوف"
+                  placeholderTextColor="#6B7E80"
+                  multiline
+                  style={styles.intentionInput}
+                />
+              </View>
+            )}
 
             {/* Duration presets */}
             <View style={styles.durationWrapper}>
@@ -595,14 +837,56 @@ export default function Home() {
             >
               <Text style={styles.btnTextWhite}>Add Task</Text>
             </Pressable>
+
+            {scheduledTasks.length > 0 && (
+              <Pressable
+                onPress={() => router.push("/scheduled")}
+                style={({ pressed }) => [
+                  styles.linkRow,
+                  { opacity: pressed ? 0.6 : 1 },
+                ]}
+              >
+                <Text style={styles.linkText}>
+                  📋 المهام المجدولة ({scheduledTasks.length})
+                </Text>
+              </Pressable>
+            )}
+            <Pressable
+              onPress={() => router.push("/thoughts")}
+              style={({ pressed }) => [
+                styles.linkRow,
+                { opacity: pressed ? 0.6 : 1 },
+              ]}
+            >
+              <Text style={styles.linkTextMuted}>💭 أفكارى</Text>
+            </Pressable>
           </View>
 
         ) : (
           /* ── ACTIVE TASK STATE ── */
           <View style={styles.center}>
-            <Text style={styles.taskTitle} testID="task-title" numberOfLines={2}>
-              {task.title}
-            </Text>
+            <View style={styles.activeTitleRow}>
+              <Text
+                style={styles.taskTitle}
+                testID="task-title"
+                numberOfLines={2}
+              >
+                {task.title}
+              </Text>
+              <Pressable
+                onPress={() => setBrainDumpOpen(true)}
+                accessibilityLabel="سجّل فكرة"
+                style={({ pressed }) => [
+                  styles.brainDumpIconBtn,
+                  { opacity: pressed ? 0.6 : 1 },
+                ]}
+              >
+                <Text style={styles.brainDumpIcon}>💭</Text>
+              </Pressable>
+            </View>
+            {task.intention ? (
+              <Text style={styles.intentionLine}>💡 {task.intention}</Text>
+            ) : null}
 
             {/* Location map-pin card */}
             {linkedPlace && (
@@ -666,9 +950,16 @@ export default function Home() {
               </View>
             )}
 
+            <Text style={styles.wallClock}>🕐 {wallClock}</Text>
             <Text style={styles.clock} testID="timer-display">
               {fmt(secondsLeft)}
             </Text>
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
+            </View>
+            {endTime && (
+              <Text style={styles.endTime}>ينتهى الساعة {endTime}</Text>
+            )}
 
             {/* Next task banner */}
             {nextTask && (
@@ -695,7 +986,21 @@ export default function Home() {
 
             {showDonePrompt ? (
               <View style={styles.stack} testID="done-prompt">
-                <Text style={styles.doneLabel}>Done?</Text>
+                <Text style={styles.doneLabel}>خلصت الجلسة! 🎉</Text>
+
+                <Pressable
+                  testID="continue-session-button"
+                  onPress={() => continueSession(false)}
+                  style={({ pressed }) => [
+                    styles.btn,
+                    styles.btnPrimary,
+                    { opacity: pressed ? 0.85 : 1 },
+                  ]}
+                >
+                  <Text style={styles.btnTextWhite}>
+                    كمّل {currentMinutes} دقيقة تانية
+                  </Text>
+                </Pressable>
 
                 <Pressable
                   testID="finish-task-button"
@@ -703,23 +1008,25 @@ export default function Home() {
                   style={({ pressed }) => [
                     styles.btn,
                     styles.btnAccent,
-                    { opacity: pressed ? 0.8 : 1 },
+                    { opacity: pressed ? 0.85 : 1 },
                   ]}
                 >
-                  <Text style={styles.btnTextWhite}>Yes</Text>
+                  <Text style={styles.btnTextWhite}>خلصت ✓</Text>
                 </Pressable>
 
-                <Pressable
-                  testID="continue-session-button"
-                  onPress={completeSession}
-                  style={({ pressed }) => [
-                    styles.btn,
-                    styles.btnOutlinePrimary,
-                    { opacity: pressed ? 0.7 : 1 },
-                  ]}
-                >
-                  <Text style={styles.btnTextPrimary}>Continue Next Session</Text>
-                </Pressable>
+                {currentMinutes < MAX_MINUTES && (
+                  <Pressable
+                    onPress={() => continueSession(true)}
+                    style={({ pressed }) => [
+                      styles.linkRow,
+                      { opacity: pressed ? 0.6 : 1 },
+                    ]}
+                  >
+                    <Text style={styles.linkTextMuted}>
+                      ↑ ارفع المدة لـ {Math.min(currentMinutes + 5, MAX_MINUTES)}م
+                    </Text>
+                  </Pressable>
+                )}
               </View>
             ) : (
               <View style={styles.stack}>
@@ -759,6 +1066,20 @@ export default function Home() {
                   ]}
                 >
                   <Text style={styles.btnTextPrimary}>Reset</Text>
+                </Pressable>
+
+                <Pressable
+                  testID="distracted-button"
+                  onPress={markDistracted}
+                  style={({ pressed }) => [
+                    styles.btn,
+                    styles.btnOutlineAccent,
+                    { opacity: pressed ? 0.7 : 1 },
+                  ]}
+                >
+                  <Text style={styles.btnTextAccent}>
+                    🌀 شارد ذهنياً — 5 دقايق
+                  </Text>
                 </Pressable>
 
                 <Pressable
@@ -842,6 +1163,56 @@ export default function Home() {
               </ScrollView>
             </Pressable>
           </Pressable>
+        </Modal>
+
+        {/* Brain-dump modal */}
+        <Modal
+          visible={brainDumpOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setBrainDumpOpen(false)}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.brainDumpCard}>
+              <Text style={styles.brainDumpHeading}>💭 فكرة سريعة</Text>
+              <Text style={styles.brainDumpSub}>
+                اكتب الفكرة وارجع لمهمتك. هتلاقيها بعدين فى صفحة "أفكارى".
+              </Text>
+              <TextInput
+                value={brainDumpText}
+                onChangeText={setBrainDumpText}
+                placeholder="مثلاً: لازم أبعت إيميل لـ..."
+                placeholderTextColor="#6B7E80"
+                multiline
+                style={styles.brainDumpInput}
+              />
+              <View style={styles.brainDumpActions}>
+                <Pressable
+                  onPress={saveThought}
+                  disabled={!brainDumpText.trim()}
+                  style={({ pressed }) => [
+                    styles.brainDumpSaveBtn,
+                    !brainDumpText.trim() && styles.brainDumpSaveBtnDisabled,
+                    { opacity: pressed ? 0.8 : 1 },
+                  ]}
+                >
+                  <Text style={styles.btnTextWhite}>احفظ ورجّعنى للمهمة</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setBrainDumpText("");
+                    setBrainDumpOpen(false);
+                  }}
+                  style={({ pressed }) => [
+                    styles.brainDumpCancelBtn,
+                    { opacity: pressed ? 0.6 : 1 },
+                  ]}
+                >
+                  <Text style={styles.brainDumpCancelText}>إلغاء</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
         </Modal>
       </View>
     </TouchableWithoutFeedback>
@@ -1319,4 +1690,211 @@ const styles = StyleSheet.create({
   durationBtnTextActive: {
     color: "#fff",
   },
+  linkRow: {
+    alignSelf: "center",
+    paddingVertical: 6,
+  },
+  linkText: {
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
+    color: "#4A6FA5",
+  },
+  linkTextMuted: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: "#6B7E80",
+  },
+  activeTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+    position: "relative",
+  },
+  brainDumpIconBtn: {
+    position: "absolute",
+    right: 0,
+    padding: 6,
+  },
+  brainDumpIcon: { fontSize: 24 },
+  brainDumpCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 18,
+    gap: 12,
+  },
+  brainDumpHeading: {
+    fontSize: 18,
+    fontFamily: "Inter_700Bold",
+    color: "#2E2E2E",
+    textAlign: "right",
+  },
+  brainDumpSub: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    color: "#6B7E80",
+    textAlign: "right",
+    lineHeight: 20,
+  },
+  brainDumpInput: {
+    borderWidth: 2,
+    borderColor: "#4A6FA5",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 15,
+    fontFamily: "Inter_400Regular",
+    color: "#2E2E2E",
+    textAlign: "right",
+    minHeight: 80,
+    textAlignVertical: "top",
+  },
+  brainDumpActions: { flexDirection: "row", gap: 10, alignItems: "center" },
+  brainDumpSaveBtn: {
+    flex: 1,
+    backgroundColor: "#4A6FA5",
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  brainDumpSaveBtnDisabled: { backgroundColor: "#9BAFD0" },
+  brainDumpCancelBtn: { paddingHorizontal: 14, justifyContent: "center" },
+  brainDumpCancelText: {
+    color: "#6B7E80",
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
+  },
+  celebrateOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 99,
+  },
+  celebrateCard: {
+    backgroundColor: "#7FB069",
+    paddingHorizontal: 32,
+    paddingVertical: 24,
+    borderRadius: 24,
+    alignItems: "center",
+    gap: 6,
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 10,
+  },
+  celebrateEmoji: { fontSize: 48 },
+  celebrateTitle: {
+    fontSize: 24,
+    fontFamily: "Inter_700Bold",
+    color: "#fff",
+  },
+  celebrateSub: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: "rgba(255,255,255,0.9)",
+  },
+  streakChip: {
+    flexDirection: "row",
+    alignSelf: "center",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#E8F0EC",
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    marginBottom: 4,
+  },
+  streakChipText: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: "#2E6B4A",
+  },
+  streakChipDot: {
+    fontSize: 13,
+    color: "#2E6B4A",
+  },
+  wallClock: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: "#6B7E80",
+  },
+  progressTrack: {
+    width: "100%",
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#E0E7E3",
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    backgroundColor: "#4A6FA5",
+  },
+  endTime: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: "#6B7E80",
+    textAlign: "center",
+  },
+  intentionWrap: { width: "100%", gap: 6 },
+  intentionLabel: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: "#6B7E80",
+    textAlign: "right",
+  },
+  intentionInput: {
+    borderWidth: 1.5,
+    borderColor: "#4A6FA5",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    color: "#2E2E2E",
+    textAlign: "right",
+    minHeight: 56,
+    textAlignVertical: "top",
+  },
+  intentionLine: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    color: "#6B7E80",
+    fontStyle: "italic",
+    textAlign: "center",
+  },
+  templatesWrap: { width: "100%", gap: 6 },
+  templatesLabel: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+    color: "#6B7E80",
+    textAlign: "right",
+  },
+  templatesRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  templateChip: {
+    borderWidth: 1,
+    borderColor: "#4A6FA5",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  templateChipText: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: "#4A6FA5",
+  },
+  themeIconBtn: {
+    position: "absolute",
+    left: 0,
+    padding: 6,
+  },
+  themeIcon: { fontSize: 22 },
 });
