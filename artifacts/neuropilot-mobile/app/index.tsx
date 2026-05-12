@@ -48,6 +48,7 @@ import {
   getTodayCount,
   recordCompletedSession,
 } from "@/lib/stats";
+import { getTopTemplates, recordTaskTitle } from "@/lib/templates";
 import { addThought } from "@/lib/thoughts";
 
 function permissionDeniedAlert(reason: PermissionDeniedReason | null): { title: string; message: string } {
@@ -100,6 +101,12 @@ export default function Home() {
   // Optional "why now" the user can attach when creating a task.
   const [intention, setIntention] = useState("");
   const [intentionOpen, setIntentionOpen] = useState(false);
+
+  // Most-used task titles, surfaced as chips on the welcome screen.
+  const [templates, setTemplates] = useState<string[]>([]);
+  useEffect(() => {
+    getTopTemplates(5).then(setTemplates);
+  }, []);
 
   // Dopamine reward state: today's completion count, streak across
   // consecutive days, and a flash celebration card right after a
@@ -284,6 +291,8 @@ export default function Home() {
   const addTask = async () => {
     if (!draft.trim()) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    await recordTaskTitle(draft);
+    setTemplates(await getTopTemplates(5));
 
     const newTask: Task = {
       title: draft.trim(),
@@ -634,6 +643,29 @@ export default function Home() {
               returnKeyType="done"
               style={styles.input}
             />
+
+            {templates.length > 0 && (
+              <View style={styles.templatesWrap}>
+                <Text style={styles.templatesLabel}>مهام بتكتبها كتير:</Text>
+                <View style={styles.templatesRow}>
+                  {templates.map((t) => (
+                    <Pressable
+                      key={t}
+                      onPress={() => {
+                        setDraft(t);
+                        Haptics.selectionAsync();
+                      }}
+                      style={({ pressed }) => [
+                        styles.templateChip,
+                        { opacity: pressed ? 0.7 : 1 },
+                      ]}
+                    >
+                      <Text style={styles.templateChipText}>{t}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            )}
 
             {!intentionOpen ? (
               <Pressable
@@ -1771,5 +1803,29 @@ const styles = StyleSheet.create({
     color: "#6B7E80",
     fontStyle: "italic",
     textAlign: "center",
+  },
+  templatesWrap: { width: "100%", gap: 6 },
+  templatesLabel: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+    color: "#6B7E80",
+    textAlign: "right",
+  },
+  templatesRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  templateChip: {
+    borderWidth: 1,
+    borderColor: "#4A6FA5",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  templateChipText: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: "#4A6FA5",
   },
 });
