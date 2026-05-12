@@ -4,6 +4,7 @@ import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
+  Animated,
   AppState,
   AppStateStatus,
   Keyboard,
@@ -42,6 +43,11 @@ import {
   setTask,
   Task,
 } from "@/lib/storage";
+import {
+  getStreak,
+  getTodayCount,
+  recordCompletedSession,
+} from "@/lib/stats";
 import { addThought } from "@/lib/thoughts";
 
 function permissionDeniedAlert(reason: PermissionDeniedReason | null): { title: string; message: string } {
@@ -90,6 +96,43 @@ export default function Home() {
   // thought mid-session and need to park it without breaking focus.
   const [brainDumpOpen, setBrainDumpOpen] = useState(false);
   const [brainDumpText, setBrainDumpText] = useState("");
+
+  // Dopamine reward state: today's completion count, streak across
+  // consecutive days, and a flash celebration card right after a
+  // completed session.
+  const [todayCount, setTodayCount] = useState(0);
+  const [streak, setStreak] = useState(0);
+  const [celebrate, setCelebrate] = useState(false);
+  const celebrateAnim = useRef(new Animated.Value(0)).current;
+
+  const refreshStats = useCallback(async () => {
+    const [t, s] = await Promise.all([getTodayCount(), getStreak()]);
+    setTodayCount(t);
+    setStreak(s);
+  }, []);
+
+  useEffect(() => {
+    refreshStats();
+  }, [refreshStats]);
+
+  const showCelebration = () => {
+    setCelebrate(true);
+    celebrateAnim.setValue(0);
+    Animated.sequence([
+      Animated.spring(celebrateAnim, {
+        toValue: 1,
+        useNativeDriver: true,
+        damping: 12,
+        stiffness: 220,
+      }),
+      Animated.delay(1400),
+      Animated.timing(celebrateAnim, {
+        toValue: 0,
+        duration: 350,
+        useNativeDriver: true,
+      }),
+    ]).start(() => setCelebrate(false));
+  };
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -343,7 +386,7 @@ export default function Home() {
 
   const completeSession = async () => {
     if (!task) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     const nextDuration = Math.min(currentMinutes + 5, MAX_MINUTES);
     const next: Task = {
       ...task,
@@ -353,6 +396,10 @@ export default function Home() {
     await save(next);
     setShowDonePrompt(false);
     setSecondsLeft(nextDuration * 60);
+    // Dopamine moment: record + celebrate + refresh stats.
+    await recordCompletedSession();
+    await refreshStats();
+    showCelebration();
   };
 
   const finishTask = async () => {
@@ -473,9 +520,52 @@ export default function Home() {
           { backgroundColor: bg, paddingTop: topPad, paddingBottom: botPad },
         ]}
       >
+        {celebrate && (
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.celebrateOverlay,
+              {
+                opacity: celebrateAnim,
+                transform: [
+                  {
+                    scale: celebrateAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.6, 1],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <View style={styles.celebrateCard}>
+              <Text style={styles.celebrateEmoji}>🎉</Text>
+              <Text style={styles.celebrateTitle}>أحسنت!</Text>
+              <Text style={styles.celebrateSub}>
+                جلسة {todayCount} النهارده{streak >= 2 ? ` · 🔥 ${streak} أيام` : ""}
+              </Text>
+            </View>
+          </Animated.View>
+        )}
+
         {!task ? (
           /* ── EMPTY STATE: no task yet ── */
           <View style={styles.center}>
+            {(todayCount > 0 || streak >= 2) && (
+              <View style={styles.streakChip}>
+                {streak >= 2 && (
+                  <Text style={styles.streakChipText}>🔥 {streak} أيام</Text>
+                )}
+                {streak >= 2 && todayCount > 0 && (
+                  <Text style={styles.streakChipDot}>·</Text>
+                )}
+                {todayCount > 0 && (
+                  <Text style={styles.streakChipText}>
+                    اليوم {todayCount} جلسة
+                  </Text>
+                )}
+              </View>
+            )}
             {/* Header row: logo + places button */}
             <View style={styles.headerRow}>
               <Text style={styles.logo} testID="logo">
@@ -1485,5 +1575,59 @@ const styles = StyleSheet.create({
     color: "#6B7E80",
     fontSize: 14,
     fontFamily: "Inter_500Medium",
+  },
+  celebrateOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 99,
+  },
+  celebrateCard: {
+    backgroundColor: "#7FB069",
+    paddingHorizontal: 32,
+    paddingVertical: 24,
+    borderRadius: 24,
+    alignItems: "center",
+    gap: 6,
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 10,
+  },
+  celebrateEmoji: { fontSize: 48 },
+  celebrateTitle: {
+    fontSize: 24,
+    fontFamily: "Inter_700Bold",
+    color: "#fff",
+  },
+  celebrateSub: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: "rgba(255,255,255,0.9)",
+  },
+  streakChip: {
+    flexDirection: "row",
+    alignSelf: "center",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#E8F0EC",
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    marginBottom: 4,
+  },
+  streakChipText: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: "#2E6B4A",
+  },
+  streakChipDot: {
+    fontSize: 13,
+    color: "#2E6B4A",
   },
 });
