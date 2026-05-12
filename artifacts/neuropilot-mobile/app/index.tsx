@@ -1439,12 +1439,6 @@ const styles = StyleSheet.create({
     padding: 6,
   },
   brainDumpIcon: { fontSize: 24 },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    justifyContent: "center",
-    paddingHorizontal: 20,
-  },
   brainDumpCard: {
     backgroundColor: "#fff",
     borderRadius: 16,
