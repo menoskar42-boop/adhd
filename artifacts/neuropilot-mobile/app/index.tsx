@@ -1,7 +1,7 @@
 import * as Haptics from "expo-haptics";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { router, useFocusEffect } from "expo-router";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Animated,
@@ -105,6 +105,15 @@ export default function Home() {
   const [celebrate, setCelebrate] = useState(false);
   const celebrateAnim = useRef(new Animated.Value(0)).current;
 
+  // Wall clock + end-time + linear progress for ADHD time blindness.
+  // The clock ticks every 15s; secondsLeft already triggers the
+  // progress bar's re-render.
+  const [now, setNow] = useState<Date>(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 15_000);
+    return () => clearInterval(id);
+  }, []);
+
   const refreshStats = useCallback(async () => {
     const [t, s] = await Promise.all([getTodayCount(), getStreak()]);
     setTodayCount(t);
@@ -114,6 +123,27 @@ export default function Home() {
   useEffect(() => {
     refreshStats();
   }, [refreshStats]);
+
+  const wallClock = useMemo(() => {
+    const h = now.getHours().toString().padStart(2, "0");
+    const m = now.getMinutes().toString().padStart(2, "0");
+    return `${h}:${m}`;
+  }, [now]);
+
+  const endTime = useMemo(() => {
+    if (!task) return null;
+    const end = new Date(Date.now() + secondsLeft * 1000);
+    const h = end.getHours().toString().padStart(2, "0");
+    const m = end.getMinutes().toString().padStart(2, "0");
+    return `${h}:${m}`;
+  }, [task, secondsLeft]);
+
+  const progressPct = useMemo(() => {
+    const total = (task?.currentDuration ?? DEFAULT_MINUTES) * 60;
+    if (total <= 0) return 0;
+    const elapsed = total - secondsLeft;
+    return Math.max(0, Math.min(100, (elapsed / total) * 100));
+  }, [task, secondsLeft]);
 
   const showCelebration = () => {
     setCelebrate(true);
@@ -799,9 +829,16 @@ export default function Home() {
               </View>
             )}
 
+            <Text style={styles.wallClock}>🕐 {wallClock}</Text>
             <Text style={styles.clock} testID="timer-display">
               {fmt(secondsLeft)}
             </Text>
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
+            </View>
+            {endTime && (
+              <Text style={styles.endTime}>ينتهى الساعة {endTime}</Text>
+            )}
 
             {/* Next task banner */}
             {nextTask && (
@@ -1629,5 +1666,27 @@ const styles = StyleSheet.create({
   streakChipDot: {
     fontSize: 13,
     color: "#2E6B4A",
+  },
+  wallClock: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: "#6B7E80",
+  },
+  progressTrack: {
+    width: "100%",
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#E0E7E3",
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    backgroundColor: "#4A6FA5",
+  },
+  endTime: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: "#6B7E80",
+    textAlign: "center",
   },
 });
