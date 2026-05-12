@@ -430,6 +430,21 @@ export default function Home() {
     setSecondsLeft(DEFAULT_MINUTES * 60);
   };
 
+  // Forgiving recovery: notice the distraction, shrink to a 5-minute
+  // warm-up, and start immediately. Does NOT log a "failed" session —
+  // ADHD users need guilt-free re-entry, not a strike counter.
+  const DISTRACTION_MINUTES = 5;
+  const markDistracted = async () => {
+    if (!task) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    const next: Task = { ...task, currentDuration: DISTRACTION_MINUTES };
+    await save(next);
+    setSecondsLeft(DISTRACTION_MINUTES * 60);
+    setShowDonePrompt(false);
+    setIsRunning(true);
+    Alert.alert("ولا يهمك", "5 دقايق بس ونرجع.");
+  };
+
   // Continue the same task. `bump` lets the user pick whether the next
   // session grows the duration (legacy pomodoro ramp) or holds steady;
   // ADHD users often prefer a flat cadence.
@@ -1017,6 +1032,20 @@ export default function Home() {
                   ]}
                 >
                   <Text style={styles.btnTextPrimary}>Reset</Text>
+                </Pressable>
+
+                <Pressable
+                  testID="distracted-button"
+                  onPress={markDistracted}
+                  style={({ pressed }) => [
+                    styles.btn,
+                    styles.btnOutlineAccent,
+                    { opacity: pressed ? 0.7 : 1 },
+                  ]}
+                >
+                  <Text style={styles.btnTextAccent}>
+                    🌀 شارد ذهنياً — 5 دقايق
+                  </Text>
                 </Pressable>
 
                 <Pressable
