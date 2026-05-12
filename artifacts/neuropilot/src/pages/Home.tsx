@@ -280,6 +280,21 @@ export default function Home() {
     setTask(nextTask);
   };
 
+  // Shared dopamine moment for every path that ends a focus session as
+  // "completed": natural finish ("خلصت ✓"), early stop ("وقف الجلسة
+  // بدرى"), and the auto-continuing "كمّل دقيقة تانية". Records the
+  // stat, refreshes the streak chips, fires the overlay, and surfaces a
+  // toast so the reward isn't missed if the 2.2s overlay is blinked at.
+  const celebrateCompletion = () => {
+    recordCompletedSession();
+    setTodayCount(getTodayCount());
+    setStreak(getStreak());
+    setCelebrate(true);
+    setTimeout(() => setCelebrate(false), 2200);
+    haptics.success();
+    toast({ description: "أحسنت! 🎉 جلسة محسوبة." });
+  };
+
   const linkedPlace = useMemo(
     () => (task?.locationId ? getPlaceById(task.locationId) : null),
     [task]
@@ -417,7 +432,13 @@ export default function Home() {
     setSecondsLeft(currentMinutes * 60);
   };
 
-  const finishTask = () => {
+  // `celebrate` is true when the user is finishing on a high note —
+  // either the natural-end "خلصت ✓" tap on the Done prompt, or any
+  // future path where ending the task should reward the user. The
+  // default false keeps internal callers (switchTask, geofence
+  // promotions) silent — those aren't completions.
+  const finishTask = (celebrate = false) => {
+    if (celebrate) celebrateCompletion();
     clearReminders();
     stopGeofence();
     clearTask();
@@ -470,14 +491,9 @@ export default function Home() {
     saveTask(nextTask);
     setIsRunning(false);
     setSecondsLeft(DEFAULT_MINUTES * 60);
-    // Finishing early IS finishing — give the same dopamine hit as a
-    // natural completion so the user isn't punished for being efficient.
-    recordCompletedSession();
-    setTodayCount(getTodayCount());
-    setStreak(getStreak());
-    setCelebrate(true);
-    setTimeout(() => setCelebrate(false), 2200);
-    haptics.success();
+    // Finishing early IS finishing — same dopamine hit as a natural
+    // completion, otherwise the user is punished for being efficient.
+    celebrateCompletion();
   };
 
   // Forgiving recovery: notice the distraction, shrink to a 5-minute
@@ -519,14 +535,7 @@ export default function Home() {
     // Auto-resume — no second tap on Start. ADHD users lose momentum
     // in the gap between "yes, keep going" and physically restarting.
     setIsRunning(true);
-    // Dopamine moment: record the completion and trigger the celebration
-    // overlay. Refresh streak/today so the welcome screen reflects it.
-    recordCompletedSession();
-    setTodayCount(getTodayCount());
-    setStreak(getStreak());
-    setCelebrate(true);
-    setTimeout(() => setCelebrate(false), 2200);
-    haptics.success();
+    celebrateCompletion();
   };
 
   return (
@@ -1045,7 +1054,7 @@ export default function Home() {
                   كمّل {nextContinueDuration((task?.continueCount ?? 0) + 1)} دقيقة تانية
                 </button>
                 <button
-                  onClick={finishTask}
+                  onClick={() => finishTask(true)}
                   className="w-full rounded-xl py-4 text-xl font-semibold text-white"
                   style={{ backgroundColor: theme.colors.accent }}
                 >
