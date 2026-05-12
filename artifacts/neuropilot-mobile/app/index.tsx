@@ -421,10 +421,15 @@ export default function Home() {
     setSecondsLeft(DEFAULT_MINUTES * 60);
   };
 
-  const completeSession = async () => {
+  // Continue the same task. `bump` lets the user pick whether the next
+  // session grows the duration (legacy pomodoro ramp) or holds steady;
+  // ADHD users often prefer a flat cadence.
+  const continueSession = async (bump: boolean) => {
     if (!task) return;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    const nextDuration = Math.min(currentMinutes + 5, MAX_MINUTES);
+    const nextDuration = bump
+      ? Math.min(currentMinutes + 5, MAX_MINUTES)
+      : currentMinutes;
     const next: Task = {
       ...task,
       sessions: [...task.sessions, { duration: currentMinutes, completed: true }],
@@ -433,7 +438,6 @@ export default function Home() {
     await save(next);
     setShowDonePrompt(false);
     setSecondsLeft(nextDuration * 60);
-    // Dopamine moment: record + celebrate + refresh stats.
     await recordCompletedSession();
     await refreshStats();
     showCelebration();
@@ -901,7 +905,21 @@ export default function Home() {
 
             {showDonePrompt ? (
               <View style={styles.stack} testID="done-prompt">
-                <Text style={styles.doneLabel}>Done?</Text>
+                <Text style={styles.doneLabel}>خلصت الجلسة! 🎉</Text>
+
+                <Pressable
+                  testID="continue-session-button"
+                  onPress={() => continueSession(false)}
+                  style={({ pressed }) => [
+                    styles.btn,
+                    styles.btnPrimary,
+                    { opacity: pressed ? 0.85 : 1 },
+                  ]}
+                >
+                  <Text style={styles.btnTextWhite}>
+                    كمّل {currentMinutes} دقيقة تانية
+                  </Text>
+                </Pressable>
 
                 <Pressable
                   testID="finish-task-button"
@@ -909,23 +927,25 @@ export default function Home() {
                   style={({ pressed }) => [
                     styles.btn,
                     styles.btnAccent,
-                    { opacity: pressed ? 0.8 : 1 },
+                    { opacity: pressed ? 0.85 : 1 },
                   ]}
                 >
-                  <Text style={styles.btnTextWhite}>Yes</Text>
+                  <Text style={styles.btnTextWhite}>خلصت ✓</Text>
                 </Pressable>
 
-                <Pressable
-                  testID="continue-session-button"
-                  onPress={completeSession}
-                  style={({ pressed }) => [
-                    styles.btn,
-                    styles.btnOutlinePrimary,
-                    { opacity: pressed ? 0.7 : 1 },
-                  ]}
-                >
-                  <Text style={styles.btnTextPrimary}>Continue Next Session</Text>
-                </Pressable>
+                {currentMinutes < MAX_MINUTES && (
+                  <Pressable
+                    onPress={() => continueSession(true)}
+                    style={({ pressed }) => [
+                      styles.linkRow,
+                      { opacity: pressed ? 0.6 : 1 },
+                    ]}
+                  >
+                    <Text style={styles.linkTextMuted}>
+                      ↑ ارفع المدة لـ {Math.min(currentMinutes + 5, MAX_MINUTES)}م
+                    </Text>
+                  </Pressable>
+                )}
               </View>
             ) : (
               <View style={styles.stack}>
