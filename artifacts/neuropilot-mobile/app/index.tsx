@@ -97,6 +97,10 @@ export default function Home() {
   const [brainDumpOpen, setBrainDumpOpen] = useState(false);
   const [brainDumpText, setBrainDumpText] = useState("");
 
+  // Optional "why now" the user can attach when creating a task.
+  const [intention, setIntention] = useState("");
+  const [intentionOpen, setIntentionOpen] = useState(false);
+
   // Dopamine reward state: today's completion count, streak across
   // consecutive days, and a flash celebration card right after a
   // completed session.
@@ -286,9 +290,12 @@ export default function Home() {
       sessions: [],
       currentDuration: duration,
       locationId: selectedPlaceId ?? undefined,
+      intention: intention.trim() ? intention.trim() : undefined,
     };
 
     setDraft("");
+    setIntention("");
+    setIntentionOpen(false);
     Keyboard.dismiss();
 
     if (selectedPlaceId) {
@@ -624,6 +631,32 @@ export default function Home() {
               style={styles.input}
             />
 
+            {!intentionOpen ? (
+              <Pressable
+                onPress={() => setIntentionOpen(true)}
+                style={({ pressed }) => [
+                  styles.linkRow,
+                  { opacity: pressed ? 0.6 : 1 },
+                ]}
+              >
+                <Text style={styles.linkTextMuted}>
+                  💡 ليه دلوقتى؟ (اختيارى)
+                </Text>
+              </Pressable>
+            ) : (
+              <View style={styles.intentionWrap}>
+                <Text style={styles.intentionLabel}>💡 ليه دلوقتى؟</Text>
+                <TextInput
+                  value={intention}
+                  onChangeText={setIntention}
+                  placeholder="مثلاً: علشان أخلّى البيت مرتب قبل الضيوف"
+                  placeholderTextColor="#6B7E80"
+                  multiline
+                  style={styles.intentionInput}
+                />
+              </View>
+            )}
+
             {/* Duration presets */}
             <View style={styles.durationWrapper}>
               <Text style={styles.durationLabel}>مدة الجلسة (دقيقة):</Text>
@@ -766,6 +799,9 @@ export default function Home() {
                 <Text style={styles.brainDumpIcon}>💭</Text>
               </Pressable>
             </View>
+            {task.intention ? (
+              <Text style={styles.intentionLine}>💡 {task.intention}</Text>
+            ) : null}
 
             {/* Location map-pin card */}
             {linkedPlace && (
@@ -1687,6 +1723,33 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: "Inter_500Medium",
     color: "#6B7E80",
+    textAlign: "center",
+  },
+  intentionWrap: { width: "100%", gap: 6 },
+  intentionLabel: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: "#6B7E80",
+    textAlign: "right",
+  },
+  intentionInput: {
+    borderWidth: 1.5,
+    borderColor: "#4A6FA5",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    color: "#2E2E2E",
+    textAlign: "right",
+    minHeight: 56,
+    textAlignVertical: "top",
+  },
+  intentionLine: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    color: "#6B7E80",
+    fontStyle: "italic",
     textAlign: "center",
   },
 });
