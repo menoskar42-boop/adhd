@@ -105,6 +105,16 @@ export default function Home() {
     return () => clearInterval(id);
   }, []);
 
+  // Pick up a task title handed off from /thoughts ("📋 اعملها مهمة").
+  // Single-use: cleared after read so a refresh doesn't re-fill the input.
+  useEffect(() => {
+    const prefill = sessionStorage.getItem("neuropilot-prefill-task");
+    if (prefill) {
+      setTaskTitle(prefill);
+      sessionStorage.removeItem("neuropilot-prefill-task");
+    }
+  }, []);
+
   const wallClock = useMemo(() => {
     const h = now.getHours().toString().padStart(2, "0");
     const m = now.getMinutes().toString().padStart(2, "0");

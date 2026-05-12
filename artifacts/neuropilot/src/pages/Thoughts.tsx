@@ -21,6 +21,14 @@ export default function Thoughts() {
     setThoughts(getThoughts());
   };
 
+  // Promote a thought into the task input on Home. sessionStorage is
+  // the simplest hand-off — Wouter doesn't carry navigation state,
+  // and the key is single-use (Home clears it on read).
+  const handleScheduleAsTask = (text: string) => {
+    sessionStorage.setItem("neuropilot-prefill-task", text);
+    navigate("/");
+  };
+
   const handleClearAll = () => {
     if (!window.confirm("تمسح كل الأفكار؟")) return;
     clearAllThoughts();
@@ -92,14 +100,26 @@ export default function Thoughts() {
                         timeStyle: "short",
                       })}
                     </span>
-                    <button
-                      onClick={() => handleDelete(t.id)}
-                      aria-label="حذف"
-                      className="rounded-lg px-3 py-1 text-sm font-medium"
-                      style={{ backgroundColor: "#FFE8E8", color: "#C0392B" }}
-                    >
-                      🗑️
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleScheduleAsTask(t.text)}
+                        className="rounded-lg px-3 py-1 text-sm font-medium"
+                        style={{
+                          backgroundColor: "#EAF1EC",
+                          color: theme.colors.primary,
+                        }}
+                      >
+                        📋 اعملها مهمة
+                      </button>
+                      <button
+                        onClick={() => handleDelete(t.id)}
+                        aria-label="حذف"
+                        className="rounded-lg px-3 py-1 text-sm font-medium"
+                        style={{ backgroundColor: "#FFE8E8", color: "#C0392B" }}
+                      >
+                        🗑️
+                      </button>
+                    </div>
                   </div>
                 </li>
               ))}
