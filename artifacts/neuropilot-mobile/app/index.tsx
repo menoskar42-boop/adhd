@@ -49,6 +49,12 @@ import {
   recordCompletedSession,
 } from "@/lib/stats";
 import { getTopTemplates, recordTaskTitle } from "@/lib/templates";
+import {
+  getStoredTheme,
+  paletteFor,
+  setStoredTheme,
+  type ThemeMode,
+} from "@/lib/theme";
 import { addThought } from "@/lib/thoughts";
 
 function permissionDeniedAlert(reason: PermissionDeniedReason | null): { title: string; message: string } {
@@ -107,6 +113,20 @@ export default function Home() {
   useEffect(() => {
     getTopTemplates(5).then(setTemplates);
   }, []);
+
+  // Theme mode toggle. Initial value reads from AsyncStorage, falling
+  // back to the OS preference via Appearance.
+  const [themeMode, setThemeMode] = useState<ThemeMode>("light");
+  useEffect(() => {
+    getStoredTheme().then(setThemeMode);
+  }, []);
+  const palette = paletteFor(themeMode);
+  const toggleTheme = () => {
+    const next: ThemeMode = themeMode === "dark" ? "light" : "dark";
+    setThemeMode(next);
+    setStoredTheme(next);
+    Haptics.selectionAsync();
+  };
 
   // Dopamine reward state: today's completion count, streak across
   // consecutive days, and a flash celebration card right after a
@@ -570,7 +590,7 @@ export default function Home() {
     setGeofenceActive(await isGeofenceActive());
   };
 
-  const bg = isRunning ? "#EAF1EC" : "#F5F7F6";
+  const bg = isRunning ? palette.runningBackground : palette.background;
 
   // Which place is linked to the active task
   const linkedPlace = task?.locationId
@@ -636,6 +656,20 @@ export default function Home() {
               <Text style={styles.logo} testID="logo">
                 NeuroPilot
               </Text>
+              <Pressable
+                onPress={toggleTheme}
+                accessibilityLabel={
+                  themeMode === "dark" ? "وضع نهارى" : "وضع ليلى"
+                }
+                style={({ pressed }) => [
+                  styles.themeIconBtn,
+                  { opacity: pressed ? 0.6 : 1 },
+                ]}
+              >
+                <Text style={styles.themeIcon}>
+                  {themeMode === "dark" ? "☀️" : "🌙"}
+                </Text>
+              </Pressable>
               <Pressable
                 onPress={() => router.push("/places")}
                 style={({ pressed }) => [
@@ -1857,4 +1891,10 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     color: "#4A6FA5",
   },
+  themeIconBtn: {
+    position: "absolute",
+    left: 0,
+    padding: 6,
+  },
+  themeIcon: { fontSize: 22 },
 });
