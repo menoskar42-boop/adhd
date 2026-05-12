@@ -19,6 +19,13 @@ export interface Task {
    * cortex during the session.
    */
   intention?: string;
+  /**
+   * Number of consecutive "كمّل دقيقة تانية" presses on this task.
+   * Drives a Fibonacci escalation (3 → 5 → 8 → 13 → 21) so each "one
+   * more" stretch is longer than the last, rewarding sustained flow.
+   * Reset when the user manually bumps duration or finishes the task.
+   */
+  continueCount?: number;
 }
 
 export function getTask(): Task | null {
