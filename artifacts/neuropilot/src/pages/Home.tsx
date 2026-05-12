@@ -35,6 +35,14 @@ import { useTheme } from "@/hooks/use-theme";
 
 const DEFAULT_MINUTES = 3;
 const MAX_MINUTES = 25;
+// Fibonacci-ish ladder for repeated "كمّل دقيقة تانية" presses. Each
+// consecutive continue gives a longer stretch than the last so flow is
+// rewarded with more time, not the same short window over and over.
+const FIBONACCI_MINUTES = [3, 5, 8, 13, 21] as const;
+function nextContinueDuration(count: number): number {
+  const idx = Math.min(Math.max(count, 0), FIBONACCI_MINUTES.length - 1);
+  return FIBONACCI_MINUTES[idx];
+}
 // Tiered reminder copy. ADHD brains habituate to identical pings; the
 // 7- and 17-minute messages escalate gently without scolding.
 const REMINDERS = [
@@ -96,6 +104,16 @@ export default function Home() {
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 15_000);
     return () => clearInterval(id);
+  }, []);
+
+  // Pick up a task title handed off from /thoughts ("📋 اعملها مهمة").
+  // Single-use: cleared after read so a refresh doesn't re-fill the input.
+  useEffect(() => {
+    const prefill = sessionStorage.getItem("neuropilot-prefill-task");
+    if (prefill) {
+      setTaskTitle(prefill);
+      sessionStorage.removeItem("neuropilot-prefill-task");
+    }
   }, []);
 
   const wallClock = useMemo(() => {
@@ -446,12 +464,20 @@ export default function Home() {
     if (!task) return;
     const nextTask: Task = {
       ...task,
-      sessions: [...task.sessions, { duration: currentMinutes, completed: false }],
+      sessions: [...task.sessions, { duration: currentMinutes, completed: true }],
       currentDuration: DEFAULT_MINUTES,
     };
     saveTask(nextTask);
     setIsRunning(false);
     setSecondsLeft(DEFAULT_MINUTES * 60);
+    // Finishing early IS finishing — give the same dopamine hit as a
+    // natural completion so the user isn't punished for being efficient.
+    recordCompletedSession();
+    setTodayCount(getTodayCount());
+    setStreak(getStreak());
+    setCelebrate(true);
+    setTimeout(() => setCelebrate(false), 2200);
+    haptics.success();
   };
 
   // Forgiving recovery: notice the distraction, shrink to a 5-minute
@@ -471,21 +497,28 @@ export default function Home() {
   };
 
   // Continue the same task. `bump` controls whether the next session
-  // grows the duration (legacy pomodoro-style) or holds steady. ADHD
-  // users often prefer a flat cadence; the choice is theirs.
+  // grows the duration. The default ("كمّل") path walks a Fibonacci
+  // ladder (3 → 5 → 8 → 13 → 21) so sustained flow earns longer
+  // stretches; manual bump resets the ladder back to the user's choice.
   const continueSession = (bump: boolean) => {
     if (!task) return;
+    const prevCount = task.continueCount ?? 0;
+    const nextCount = prevCount + 1;
     const nextDuration = bump
       ? Math.min(currentMinutes + 5, MAX_MINUTES)
-      : currentMinutes;
+      : nextContinueDuration(nextCount);
     const nextTask: Task = {
       ...task,
       sessions: [...task.sessions, { duration: currentMinutes, completed: true }],
       currentDuration: nextDuration,
+      continueCount: bump ? 0 : nextCount,
     };
     saveTask(nextTask);
     setShowDonePrompt(false);
     setSecondsLeft(nextDuration * 60);
+    // Auto-resume — no second tap on Start. ADHD users lose momentum
+    // in the gap between "yes, keep going" and physically restarting.
+    setIsRunning(true);
     // Dopamine moment: record the completion and trigger the celebration
     // overlay. Refresh streak/today so the welcome screen reflects it.
     recordCompletedSession();
@@ -1009,7 +1042,7 @@ export default function Home() {
                   className="w-full rounded-xl py-4 text-xl font-semibold text-white"
                   style={{ backgroundColor: theme.colors.primary }}
                 >
-                  كمّل {currentMinutes} دقيقة تانية
+                  كمّل {nextContinueDuration((task?.continueCount ?? 0) + 1)} دقيقة تانية
                 </button>
                 <button
                   onClick={finishTask}
