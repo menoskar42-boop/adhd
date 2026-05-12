@@ -29,6 +29,7 @@ import {
 } from "@/lib/geofence";
 import { theme } from "@/lib/theme";
 import { useWakeLock } from "@/hooks/use-wake-lock";
+import { useArrivalAlarm } from "@/hooks/use-arrival-alarm";
 import { useToast } from "@/hooks/use-toast";
 import { useTheme } from "@/hooks/use-theme";
 
@@ -132,6 +133,10 @@ export default function Home() {
   // waiting on arrival (so the foreground geofence keeps polling).
   useWakeLock(task !== null || scheduledTasks.length > 0);
 
+  // Audible looped alarm fired on geofence arrival. Plays the bundled
+  // WAV until the user taps the Stop overlay below.
+  const alarm = useArrivalAlarm();
+
   const [, navigate] = useLocation();
 
   // Reload saved places whenever we land on the no-task screen
@@ -212,6 +217,8 @@ export default function Home() {
   }, [geofenceTargets]);
 
   // Refresh task state from storage whenever the geofence fires arrival.
+  // Also kick off the looped audio alarm so the user notices even if
+  // the browser notification was suppressed by DnD or an inactive tab.
   useEffect(() => {
     return onArrival(() => {
       setTaskState(getTask());
@@ -221,8 +228,9 @@ export default function Home() {
       if (active && !isRunning) {
         setSecondsLeft((active.currentDuration || DEFAULT_MINUTES) * 60);
       }
+      alarm.start();
     });
-  }, [isRunning]);
+  }, [alarm, isRunning]);
 
   // Cleanup reminders on unmount
   useEffect(() => () => clearReminders(), []);
@@ -571,6 +579,32 @@ export default function Home() {
               style={{ color: "#6B7E80" }}
             >
               إلغاء
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Arrival alarm — full-screen modal with a single huge Stop
+          button. Sits at z-[60] so it's above the permission dialog,
+          celebration card, and bottom-sheet menu. */}
+      {alarm.isRinging && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center px-6"
+          style={{ backgroundColor: "rgba(0,0,0,0.55)" }}
+          role="dialog"
+          aria-live="assertive"
+        >
+          <div className="text-center space-y-6" style={{ direction: "rtl" }}>
+            <p className="text-2xl font-bold text-white">
+              📍 وصلت! مهمتك مستنياك
+            </p>
+            <button
+              onClick={alarm.stop}
+              className="rounded-full w-48 h-48 text-3xl font-bold text-white shadow-2xl active:scale-95 transition-transform mx-auto block"
+              style={{ backgroundColor: theme.colors.accent }}
+              autoFocus
+            >
+              🔕 إيقاف
             </button>
           </div>
         </div>
