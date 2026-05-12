@@ -34,6 +34,14 @@ function RootLayoutNav() {
         name="map-picker"
         options={{ presentation: "modal", headerShown: false }}
       />
+      <Stack.Screen
+        name="scheduled"
+        options={{ presentation: "modal", headerShown: false }}
+      />
+      <Stack.Screen
+        name="thoughts"
+        options={{ presentation: "modal", headerShown: false }}
+      />
     </Stack>
   );
 }

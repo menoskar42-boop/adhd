@@ -20,16 +20,25 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { isExpoGo, isGeofenceActive, PermissionDeniedReason, requestPermissions, startGeofence, stopGeofence } from "@/lib/geofence";
+import {
+  type GeofenceTarget,
+  isExpoGo,
+  isGeofenceActive,
+  PermissionDeniedReason,
+  requestPermissions,
+  setGeofenceTargets,
+  startGeofence,
+  stopGeofence,
+} from "@/lib/geofence";
 import { getPlaces, Place } from "@/lib/places";
 import {
+  addScheduledTask,
   clearNextTask,
-  clearPendingTask,
   clearTask,
   getNextTask,
-  getPendingTask,
+  getScheduledTasks,
   getTask,
-  setPendingTask,
+  type ScheduledTask,
   setTask,
   Task,
 } from "@/lib/storage";
@@ -64,7 +73,7 @@ export default function Home() {
   const [draft, setDraft] = useState("");
   const [duration, setDuration] = useState<number>(DEFAULT_MINUTES);
   const [task, setTaskState] = useState<Task | null>(null);
-  const [pendingTask, setPendingTaskState] = useState<Task | null>(null);
+  const [scheduledTasks, setScheduledTasksState] = useState<ScheduledTask[]>([]);
   const [nextTask, setNextTaskState] = useState<Task | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(DEFAULT_MINUTES * 60);
   const [isRunning, setIsRunning] = useState(false);
@@ -86,11 +95,12 @@ export default function Home() {
     setPlaces(await getPlaces());
   }, []);
 
-  // Read all storage state at once
+  // Read all storage state at once. getScheduledTasks() also runs the
+  // legacy pendingTask migration on its first call.
   const refreshState = useCallback(async () => {
-    const [saved, pending, next, gfActive] = await Promise.all([
+    const [saved, scheduled, next, gfActive] = await Promise.all([
       getTask(),
-      getPendingTask(),
+      getScheduledTasks(),
       getNextTask(),
       isGeofenceActive(),
     ]);
@@ -100,7 +110,7 @@ export default function Home() {
       }
       return saved;
     });
-    setPendingTaskState(pending);
+    setScheduledTasksState(scheduled);
     setNextTaskState(next);
     setGeofenceActive(gfActive);
   }, []);
@@ -133,6 +143,28 @@ export default function Home() {
       refreshState();
     }, [loadPlaces, refreshState])
   );
+
+  // Mirror the scheduled-tasks list to the native geofence: one target
+  // per unique linked place. An empty list stops the watcher entirely.
+  useEffect(() => {
+    if (isExpoGo()) return;
+    const seen = new Set<string>();
+    const targets: GeofenceTarget[] = [];
+    for (const t of scheduledTasks) {
+      if (seen.has(t.locationId)) continue;
+      const place = places.find((p) => p.id === t.locationId);
+      if (!place) continue;
+      seen.add(t.locationId);
+      targets.push({
+        placeId: place.id,
+        latitude: place.latitude,
+        longitude: place.longitude,
+      });
+    }
+    setGeofenceTargets(targets).then(async () => {
+      setGeofenceActive(await isGeofenceActive());
+    });
+  }, [scheduledTasks, places]);
 
   useEffect(() => {
     if (!isRunning) {
@@ -221,11 +253,17 @@ export default function Home() {
                           ]
                         );
                       } else {
-                        // Save as pending (not active) and start geofence
-                        await setPendingTask(newTask);
-                        setPendingTaskState(newTask);
-                        await startGeofence(place.latitude, place.longitude);
-                        setGeofenceActive(await isGeofenceActive());
+                        // Add to the scheduled list; the targets effect
+                        // re-arms the native geofence to include it.
+                        const entry: ScheduledTask = {
+                          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                          title: newTask.title,
+                          currentDuration: newTask.currentDuration,
+                          locationId: place.id,
+                          createdAt: Date.now(),
+                        };
+                        await addScheduledTask(entry);
+                        setScheduledTasksState((prev) => [...prev, entry]);
                       }
                     } catch {
                       // Unexpected native error — save task without geofence so work isn't lost
@@ -256,14 +294,6 @@ export default function Home() {
     }
 
     setSelectedPlaceId(null);
-  };
-
-  const cancelPendingTask = async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    await stopGeofence();
-    await clearPendingTask();
-    setPendingTaskState(null);
-    setGeofenceActive(false);
   };
 
   const startTimer = () => {
@@ -420,11 +450,6 @@ export default function Home() {
     ? places.find((p) => p.id === task.locationId)
     : null;
 
-  // Which place is linked to the pending task
-  const pendingPlace = pendingTask?.locationId
-    ? places.find((p) => p.id === pendingTask.locationId)
-    : null;
-
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
       <View
@@ -433,43 +458,7 @@ export default function Home() {
           { backgroundColor: bg, paddingTop: topPad, paddingBottom: botPad },
         ]}
       >
-        {/* ── WAITING STATE: pending task, no active task ── */}
-        {!task && pendingTask ? (
-          <View style={styles.center}>
-            <View style={styles.headerRow}>
-              <Text style={styles.logo} testID="logo">
-                NeuroPilot
-              </Text>
-            </View>
-
-            <View style={styles.waitingCard} testID="waiting-screen">
-              <Text style={styles.waitingEmoji}>📍</Text>
-              <Text style={styles.waitingTitle}>{pendingTask.title}</Text>
-              <Text style={styles.waitingBody}>
-                ستبدأ مهمتك لما توصل{pendingPlace ? ` "${pendingPlace.name}"` : " للمكان"}
-              </Text>
-              {geofenceActive && (
-                <View style={styles.waitingBadge}>
-                  <View style={styles.geofenceDot} />
-                  <Text style={styles.waitingBadgeText}>التنبيه نشط</Text>
-                </View>
-              )}
-            </View>
-
-            <Pressable
-              testID="cancel-pending-button"
-              onPress={cancelPendingTask}
-              style={({ pressed }) => [
-                styles.btn,
-                styles.btnOutlineNeutral,
-                { opacity: pressed ? 0.7 : 1 },
-              ]}
-            >
-              <Text style={styles.btnTextNeutral}>إلغاء وتغيير المهمة</Text>
-            </Pressable>
-          </View>
-
-        ) : !task ? (
+        {!task ? (
           /* ── EMPTY STATE: no task yet ── */
           <View style={styles.center}>
             {/* Header row: logo + places button */}
@@ -594,6 +583,29 @@ export default function Home() {
               ]}
             >
               <Text style={styles.btnTextWhite}>Add Task</Text>
+            </Pressable>
+
+            {scheduledTasks.length > 0 && (
+              <Pressable
+                onPress={() => router.push("/scheduled")}
+                style={({ pressed }) => [
+                  styles.linkRow,
+                  { opacity: pressed ? 0.6 : 1 },
+                ]}
+              >
+                <Text style={styles.linkText}>
+                  📋 المهام المجدولة ({scheduledTasks.length})
+                </Text>
+              </Pressable>
+            )}
+            <Pressable
+              onPress={() => router.push("/thoughts")}
+              style={({ pressed }) => [
+                styles.linkRow,
+                { opacity: pressed ? 0.6 : 1 },
+              ]}
+            >
+              <Text style={styles.linkTextMuted}>💭 أفكارى</Text>
             </Pressable>
           </View>
 
@@ -1318,5 +1330,19 @@ const styles = StyleSheet.create({
   },
   durationBtnTextActive: {
     color: "#fff",
+  },
+  linkRow: {
+    alignSelf: "center",
+    paddingVertical: 6,
+  },
+  linkText: {
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
+    color: "#4A6FA5",
+  },
+  linkTextMuted: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: "#6B7E80",
   },
 });
