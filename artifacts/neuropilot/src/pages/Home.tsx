@@ -438,12 +438,20 @@ export default function Home() {
     if (!task) return;
     const nextTask: Task = {
       ...task,
-      sessions: [...task.sessions, { duration: currentMinutes, completed: false }],
+      sessions: [...task.sessions, { duration: currentMinutes, completed: true }],
       currentDuration: DEFAULT_MINUTES,
     };
     saveTask(nextTask);
     setIsRunning(false);
     setSecondsLeft(DEFAULT_MINUTES * 60);
+    // Finishing early IS finishing — give the same dopamine hit as a
+    // natural completion so the user isn't punished for being efficient.
+    recordCompletedSession();
+    setTodayCount(getTodayCount());
+    setStreak(getStreak());
+    setCelebrate(true);
+    setTimeout(() => setCelebrate(false), 2200);
+    haptics.success();
   };
 
   // Forgiving recovery: notice the distraction, shrink to a 5-minute
