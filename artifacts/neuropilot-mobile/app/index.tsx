@@ -42,6 +42,7 @@ import {
   setTask,
   Task,
 } from "@/lib/storage";
+import { addThought } from "@/lib/thoughts";
 
 function permissionDeniedAlert(reason: PermissionDeniedReason | null): { title: string; message: string } {
   if (reason === "notifications") {
@@ -84,6 +85,11 @@ export default function Home() {
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const [showChangePlaceModal, setShowChangePlaceModal] = useState(false);
   const [geofenceActive, setGeofenceActive] = useState(false);
+
+  // Brain-dump capture surface for ADHD users who get an intrusive
+  // thought mid-session and need to park it without breaking focus.
+  const [brainDumpOpen, setBrainDumpOpen] = useState(false);
+  const [brainDumpText, setBrainDumpText] = useState("");
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -294,6 +300,15 @@ export default function Home() {
     }
 
     setSelectedPlaceId(null);
+  };
+
+  const saveThought = async () => {
+    const saved = await addThought(brainDumpText);
+    if (!saved) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setBrainDumpText("");
+    setBrainDumpOpen(false);
+    Alert.alert("تم حفظ الفكرة 💭", "كمّل مهمتك — هتلاقيها فى \"💭 أفكارى\".");
   };
 
   const startTimer = () => {
@@ -612,9 +627,25 @@ export default function Home() {
         ) : (
           /* ── ACTIVE TASK STATE ── */
           <View style={styles.center}>
-            <Text style={styles.taskTitle} testID="task-title" numberOfLines={2}>
-              {task.title}
-            </Text>
+            <View style={styles.activeTitleRow}>
+              <Text
+                style={styles.taskTitle}
+                testID="task-title"
+                numberOfLines={2}
+              >
+                {task.title}
+              </Text>
+              <Pressable
+                onPress={() => setBrainDumpOpen(true)}
+                accessibilityLabel="سجّل فكرة"
+                style={({ pressed }) => [
+                  styles.brainDumpIconBtn,
+                  { opacity: pressed ? 0.6 : 1 },
+                ]}
+              >
+                <Text style={styles.brainDumpIcon}>💭</Text>
+              </Pressable>
+            </View>
 
             {/* Location map-pin card */}
             {linkedPlace && (
@@ -854,6 +885,56 @@ export default function Home() {
               </ScrollView>
             </Pressable>
           </Pressable>
+        </Modal>
+
+        {/* Brain-dump modal */}
+        <Modal
+          visible={brainDumpOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setBrainDumpOpen(false)}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.brainDumpCard}>
+              <Text style={styles.brainDumpHeading}>💭 فكرة سريعة</Text>
+              <Text style={styles.brainDumpSub}>
+                اكتب الفكرة وارجع لمهمتك. هتلاقيها بعدين فى صفحة "أفكارى".
+              </Text>
+              <TextInput
+                value={brainDumpText}
+                onChangeText={setBrainDumpText}
+                placeholder="مثلاً: لازم أبعت إيميل لـ..."
+                placeholderTextColor="#6B7E80"
+                multiline
+                style={styles.brainDumpInput}
+              />
+              <View style={styles.brainDumpActions}>
+                <Pressable
+                  onPress={saveThought}
+                  disabled={!brainDumpText.trim()}
+                  style={({ pressed }) => [
+                    styles.brainDumpSaveBtn,
+                    !brainDumpText.trim() && styles.brainDumpSaveBtnDisabled,
+                    { opacity: pressed ? 0.8 : 1 },
+                  ]}
+                >
+                  <Text style={styles.btnTextWhite}>احفظ ورجّعنى للمهمة</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setBrainDumpText("");
+                    setBrainDumpOpen(false);
+                  }}
+                  style={({ pressed }) => [
+                    styles.brainDumpCancelBtn,
+                    { opacity: pressed ? 0.6 : 1 },
+                  ]}
+                >
+                  <Text style={styles.brainDumpCancelText}>إلغاء</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
         </Modal>
       </View>
     </TouchableWithoutFeedback>
@@ -1344,5 +1425,71 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: "Inter_500Medium",
     color: "#6B7E80",
+  },
+  activeTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+    position: "relative",
+  },
+  brainDumpIconBtn: {
+    position: "absolute",
+    right: 0,
+    padding: 6,
+  },
+  brainDumpIcon: { fontSize: 24 },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+  },
+  brainDumpCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 18,
+    gap: 12,
+  },
+  brainDumpHeading: {
+    fontSize: 18,
+    fontFamily: "Inter_700Bold",
+    color: "#2E2E2E",
+    textAlign: "right",
+  },
+  brainDumpSub: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    color: "#6B7E80",
+    textAlign: "right",
+    lineHeight: 20,
+  },
+  brainDumpInput: {
+    borderWidth: 2,
+    borderColor: "#4A6FA5",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 15,
+    fontFamily: "Inter_400Regular",
+    color: "#2E2E2E",
+    textAlign: "right",
+    minHeight: 80,
+    textAlignVertical: "top",
+  },
+  brainDumpActions: { flexDirection: "row", gap: 10, alignItems: "center" },
+  brainDumpSaveBtn: {
+    flex: 1,
+    backgroundColor: "#4A6FA5",
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  brainDumpSaveBtnDisabled: { backgroundColor: "#9BAFD0" },
+  brainDumpCancelBtn: { paddingHorizontal: 14, justifyContent: "center" },
+  brainDumpCancelText: {
+    color: "#6B7E80",
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
   },
 });
