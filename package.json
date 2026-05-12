@@ -1,21 +1,22 @@
 {
-  "name": "neuropilot",
-  "version": "0.1.0",
+  "name": "neuropilot-workspace",
+  "version": "0.0.0",
   "private": true,
+  "description": "pnpm workspace root. The actual apps live in artifacts/*.",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
+    "typecheck:libs": "tsc --build",
+    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter './artifacts/**' --filter './scripts' --if-present run typecheck",
+    "build": "pnpm run typecheck && pnpm -r --if-present run build"
   },
-  "dependencies": {
-    "next": "15.3.1",
-    "react": "19.1.0",
-    "react-dom": "19.1.0"
-  },
-  "devDependencies": {
-    "tailwindcss": "^3.4.17",
-    "postcss": "^8.4.49",
-    "autoprefixer": "^10.4.20"
+  "pnpm": {
+    "overrides": {
+      "picomatch": "^4.0.4",
+      "path-to-regexp@>=8.0.0 <8.4.0": ">=8.4.0",
+      "fast-uri@<3.1.2": ">=3.1.2",
+      "brace-expansion@>=2.0.0 <2.0.3": ">=2.0.3",
+      "yaml@<2.8.3": ">=2.8.3",
+      "postcss@<8.5.10": ">=8.5.10"
+    }
   }
 }
+
