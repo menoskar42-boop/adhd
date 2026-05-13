@@ -371,6 +371,10 @@ export default function Home() {
     setSelectedPlaceId(null);
     resetIntention();
     setSecondsLeft(duration * 60);
+    // Auto-start — the user already tapped Start Now on the welcome
+    // screen. Making them tap a second Start on the timer screen is the
+    // exact friction that loses ADHD momentum between intent and action.
+    setIsRunning(true);
     scheduleReminders();
   };
 
