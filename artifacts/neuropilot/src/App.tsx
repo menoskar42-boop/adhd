@@ -2,6 +2,7 @@ import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useWakeLock } from "@/hooks/use-wake-lock";
 import NotFound from "@/pages/not-found";
 import Home from "@/pages/Home";
 import Places from "@/pages/Places";
@@ -23,6 +24,12 @@ function Router() {
 }
 
 function App() {
+  // Site-wide wake lock — the phone stays awake on every page, not just
+  // the timer. ADHD users lose intent the moment a screen sleeps, even
+  // on the thoughts/places/scheduled views. The hook is idempotent and
+  // re-acquires on visibilitychange.
+  useWakeLock(true);
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
