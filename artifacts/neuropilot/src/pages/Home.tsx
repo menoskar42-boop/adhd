@@ -149,9 +149,12 @@ export default function Home() {
     toast({ description: "تم حفظ الفكرة 💭 — كمّل مهمتك." });
   };
 
-  // Keep screen awake while a task is running or any scheduled task is
-  // waiting on arrival (so the foreground geofence keeps polling).
-  useWakeLock(task !== null || scheduledTasks.length > 0);
+  // Keep the screen awake the whole time the site is open. The hook
+  // requests the browser Wake Lock and re-acquires it on visibility
+  // changes; restricting it to "during a task" caused the welcome
+  // screen to sleep mid-thought, which loses ADHD users the moment
+  // they're staring at the task input deciding what to do.
+  useWakeLock(true);
 
   // Audible looped alarm fired on geofence arrival. Plays the bundled
   // WAV until the user taps the Stop overlay below.
