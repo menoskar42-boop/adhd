@@ -30,6 +30,13 @@ export function useWakeLock(active: boolean): void {
         sentinel = lock;
         lock.addEventListener("release", () => {
           if (sentinel === lock) sentinel = null;
+          // iOS Safari (and some Android browsers) silently release the
+          // wake lock on big state churn — e.g., toast/overlay popping
+          // up at the end of a session. Re-acquire as long as the page
+          // is still visible; otherwise wait for visibilitychange.
+          if (!cancelled && document.visibilityState === "visible") {
+            acquire();
+          }
         });
       } catch {
         // browser refused (e.g., no user gesture, hidden tab) — silent fallback
