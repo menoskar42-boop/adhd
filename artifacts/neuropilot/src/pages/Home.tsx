@@ -12,7 +12,7 @@ import {
   Task,
 } from "@/lib/storage";
 import { getPlaceById, getPlaces, type Place } from "@/lib/places";
-import { addThought } from "@/lib/thoughts";
+import { addThought, getThoughts } from "@/lib/thoughts";
 import { haptics } from "@/lib/haptics";
 import { getTopTemplates, recordTaskTitle } from "@/lib/templates";
 import {
@@ -92,6 +92,7 @@ export default function Home() {
   const { mode: themeMode, toggle: toggleTheme } = useTheme();
   const [brainDumpOpen, setBrainDumpOpen] = useState(false);
   const [brainDumpText, setBrainDumpText] = useState("");
+  const [thoughtsCount, setThoughtsCount] = useState<number>(() => getThoughts().length);
   const [celebrate, setCelebrate] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [intention, setIntention] = useState("");
@@ -144,6 +145,7 @@ export default function Home() {
     if (!saved) return;
     setBrainDumpText("");
     setBrainDumpOpen(false);
+    setThoughtsCount(getThoughts().length);
     toast({ description: "تم حفظ الفكرة 💭 — كمّل مهمتك." });
   };
 
@@ -161,6 +163,14 @@ export default function Home() {
   // (e.g., after returning from /places).
   useEffect(() => {
     if (!task) setPlaces(getPlaces());
+  }, [task]);
+
+  // Refresh the pending-thought count whenever we land on the no-task
+  // screen — covers the post-finish moment and returning from /thoughts.
+  // Persistent passive badge, not a popup: ADHD users need the option
+  // visible without the obligation pressure of an interruptive prompt.
+  useEffect(() => {
+    if (!task) setThoughtsCount(getThoughts().length);
   }, [task]);
 
   const reminderTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -934,12 +944,21 @@ export default function Home() {
               </button>
             )}
             <button
-              onClick={() => navigate("/thoughts")}
+              onClick={() => setBrainDumpOpen(true)}
               className="text-sm font-medium underline-offset-4 hover:underline"
               style={{ color: "#6B7E80", direction: "rtl" }}
             >
-              💭 أفكارى
+              + سجّل فكرة
             </button>
+            {thoughtsCount > 0 && (
+              <button
+                onClick={() => navigate("/thoughts")}
+                className="text-sm font-medium underline-offset-4 hover:underline"
+                style={{ color: "#6B7E80", direction: "rtl" }}
+              >
+                💭 أفكارى ({thoughtsCount >= 10 ? "10+" : thoughtsCount})
+              </button>
+            )}
           </>
         ) : (
           <>
