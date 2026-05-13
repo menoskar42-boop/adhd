@@ -28,7 +28,6 @@ import {
   stopGeofence,
 } from "@/lib/geofence";
 import { theme } from "@/lib/theme";
-import { useWakeLock } from "@/hooks/use-wake-lock";
 import { useArrivalAlarm } from "@/hooks/use-arrival-alarm";
 import { useToast } from "@/hooks/use-toast";
 import { useTheme } from "@/hooks/use-theme";
@@ -149,9 +148,8 @@ export default function Home() {
     toast({ description: "تم حفظ الفكرة 💭 — كمّل مهمتك." });
   };
 
-  // Keep screen awake while a task is running or any scheduled task is
-  // waiting on arrival (so the foreground geofence keeps polling).
-  useWakeLock(task !== null || scheduledTasks.length > 0);
+  // Wake lock is now held at the App level so every page stays awake,
+  // not just Home. See App.tsx.
 
   // Audible looped alarm fired on geofence arrival. Plays the bundled
   // WAV until the user taps the Stop overlay below.
