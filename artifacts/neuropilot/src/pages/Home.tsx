@@ -14,6 +14,7 @@ import {
 import { getPlaceById, getPlaces, type Place } from "@/lib/places";
 import { addThought, getThoughts } from "@/lib/thoughts";
 import { haptics } from "@/lib/haptics";
+import { playTimerEndAlert } from "@/lib/timer-end-alert";
 import { getTopTemplates, recordTaskTitle } from "@/lib/templates";
 import {
   getStreak,
@@ -269,6 +270,9 @@ export default function Home() {
           clearInterval(id);
           setIsRunning(false);
           setShowDonePrompt(true);
+          // Audible + haptic bump so the user notices the end of the
+          // session even when they're not looking at the screen.
+          playTimerEndAlert();
           return 0;
         }
         return prev - 1;
