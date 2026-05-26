@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: push
+    description: Web Push notification operations
 paths:
   /healthz:
     get:
@@ -24,6 +26,97 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /push/vapid-public-key:
+    get:
+      operationId: getVapidPublicKey
+      tags: [push]
+      summary: Get VAPID public key
+      description: Returns the server's VAPID public key for push subscription.
+      responses:
+        "200":
+          description: The VAPID public key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VapidKey"
+  /push/subscribe:
+    post:
+      operationId: subscribePush
+      tags: [push]
+      summary: Register a push subscription
+      description: Stores (or refreshes) a browser push subscription for a client.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubscribeRequest"
+      responses:
+        "200":
+          description: Stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+  /push/unsubscribe:
+    post:
+      operationId: unsubscribePush
+      tags: [push]
+      summary: Remove a push subscription
+      description: Deletes a stored push subscription by its endpoint.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UnsubscribeRequest"
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+  /push/schedule:
+    post:
+      operationId: schedulePush
+      tags: [push]
+      summary: Schedule a future push
+      description: >-
+        Schedules a notification to be delivered at fireAt. Any existing
+        pending push with the same clientId and tag is replaced.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScheduleRequest"
+      responses:
+        "200":
+          description: Scheduled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduleResponse"
+  /push/cancel:
+    post:
+      operationId: cancelScheduledPush
+      tags: [push]
+      summary: Cancel a scheduled push
+      description: Cancels pending pushes matching the given clientId and tag.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelRequest"
+      responses:
+        "200":
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancelResponse"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +126,109 @@ components:
           type: string
       required:
         - status
+    OkResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+      required:
+        - ok
+    VapidKey:
+      type: object
+      properties:
+        publicKey:
+          type: string
+      required:
+        - publicKey
+    PushSubscriptionKeys:
+      type: object
+      properties:
+        p256dh:
+          type: string
+        auth:
+          type: string
+      required:
+        - p256dh
+        - auth
+    WebPushSubscription:
+      type: object
+      properties:
+        endpoint:
+          type: string
+          minLength: 1
+        keys:
+          $ref: "#/components/schemas/PushSubscriptionKeys"
+      required:
+        - endpoint
+        - keys
+    SubscribeRequest:
+      type: object
+      properties:
+        clientId:
+          type: string
+          minLength: 1
+        subscription:
+          $ref: "#/components/schemas/WebPushSubscription"
+      required:
+        - clientId
+        - subscription
+    UnsubscribeRequest:
+      type: object
+      properties:
+        endpoint:
+          type: string
+          minLength: 1
+      required:
+        - endpoint
+    ScheduleRequest:
+      type: object
+      properties:
+        clientId:
+          type: string
+          minLength: 1
+        tag:
+          type: string
+          minLength: 1
+        title:
+          type: string
+          minLength: 1
+        body:
+          type: string
+        url:
+          type: string
+        fireAt:
+          type: string
+          format: date-time
+      required:
+        - clientId
+        - tag
+        - title
+        - body
+        - fireAt
+    ScheduleResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+      required:
+        - id
+    CancelRequest:
+      type: object
+      properties:
+        clientId:
+          type: string
+          minLength: 1
+        tag:
+          type: string
+          minLength: 1
+      required:
+        - clientId
+        - tag
+    CancelResponse:
+      type: object
+      properties:
+        cancelled:
+          type: integer
+      required:
+        - cancelled
 
