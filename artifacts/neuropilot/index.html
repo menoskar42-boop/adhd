@@ -13,6 +13,39 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="NeuroPilot" />
+
+    <!--
+      Open Graph + Twitter. Image and URL are relative — most modern
+      crawlers resolve them against the page origin. If the site moves to
+      a non-root path or needs absolute URLs for a specific platform,
+      swap to fully-qualified URLs at deploy time.
+    -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="NeuroPilot" />
+    <meta property="og:title" content="NeuroPilot — مساعد فوكاس ADHD" />
+    <meta property="og:description" content="NeuroPilot — أداة فوكاس لذوى فرط الحركة وتشتّت الانتباه. مهمة واحدة، مؤقّت قصير، وتذكيرات بالموقع تمنع التشتّت." />
+    <meta property="og:image" content="/opengraph.jpg" />
+    <meta property="og:locale" content="ar_EG" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="NeuroPilot — مساعد فوكاس ADHD" />
+    <meta name="twitter:description" content="NeuroPilot — أداة فوكاس لذوى فرط الحركة وتشتّت الانتباه. مهمة واحدة، مؤقّت قصير، وتذكيرات بالموقع تمنع التشتّت." />
+    <meta name="twitter:image" content="/opengraph.jpg" />
+
+    <!-- Structured data: marks the landing as a SoftwareApplication so
+         search engines can surface it as a product, not generic page. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "NeuroPilot",
+        "description": "أداة فوكاس لذوى فرط الحركة وتشتّت الانتباه: مهمة واحدة، مؤقّت قصير، تذكيرات بالموقع.",
+        "applicationCategory": "ProductivityApplication",
+        "operatingSystem": "Web, iOS, Android",
+        "inLanguage": "ar",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+      }
+    </script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
