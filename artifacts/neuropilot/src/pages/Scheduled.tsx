@@ -8,10 +8,12 @@ import {
 } from "@/lib/storage";
 import { getPlaces, type Place } from "@/lib/places";
 import { theme } from "@/lib/theme";
+import { useNoindex } from "@/hooks/use-noindex";
 
 const DURATION_PRESETS = [5, 10, 15, 20, 25] as const;
 
 export default function Scheduled() {
+  useNoindex();
   const [, navigate] = useLocation();
   const [tasks, setTasks] = useState<ScheduledTask[]>([]);
   const [places, setPlaces] = useState<Place[]>([]);

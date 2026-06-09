@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { deletePlace, getPlaces, type Place, savePlace } from "@/lib/places";
 import { theme } from "@/lib/theme";
+import { useNoindex } from "@/hooks/use-noindex";
 
 export default function Places() {
+  useNoindex();
   const [, navigate] = useLocation();
   const [places, setPlaces] = useState<Place[]>([]);
   const [nameInput, setNameInput] = useState("");

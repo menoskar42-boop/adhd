@@ -29,6 +29,12 @@ import {
   stopGeofence,
 } from "@/lib/geofence";
 import { theme } from "@/lib/theme";
+import {
+  cancelSessionPushes,
+  enablePush,
+  isPushSupported,
+  scheduleSessionPushes,
+} from "@/lib/push";
 import { useArrivalAlarm } from "@/hooks/use-arrival-alarm";
 import { useToast } from "@/hooks/use-toast";
 import { useTheme } from "@/hooks/use-theme";
@@ -50,6 +56,11 @@ const REMINDERS = [
   "لسه واقف هنا — جرّب 5 دقايق بس وشوف ✨",
   "مفيش مشكلة لو اتأخرت، لكن مهمتك مستنية 🌿",
 ];
+// 2 min → 7 min → 17 min, shared by the in-app fallback timers and the
+// server-side push reminders so both tiers stay in sync.
+const REMINDER_OFFSETS_SEC = [2 * 60, 7 * 60, 17 * 60];
+// Notification shown by the server when the session timer reaches 00:00.
+const SESSION_END_BODY = "خلص وقت الجلسة ⏰ كل الاحترام إنك كمّلت 💙";
 const OPEN_MSG = "نبدأ 3 دقايق بس";
 
 function formatTime(totalSeconds: number): string {
@@ -173,6 +184,11 @@ export default function Home() {
   }, [task]);
 
   const reminderTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  // True once the browser is subscribed to server push. When set, the
+  // reminders + end alert are delivered as background pushes (which fire
+  // even if the tab is closed), so the in-app setTimeout pings below are
+  // suppressed to avoid double notifications.
+  const pushEnabledRef = useRef(false);
 
   const clearReminders = () => {
     reminderTimers.current.forEach(clearTimeout);
@@ -181,12 +197,14 @@ export default function Home() {
 
   const scheduleReminders = () => {
     clearReminders();
-    // 2 min → 7 min (2+5) → 17 min (2+5+10). Each tier uses its own
-    // message so the user doesn't habituate to a single recurring ping.
-    const delays = [2 * 60 * 1000, 7 * 60 * 1000, 17 * 60 * 1000];
-    delays.forEach((ms, idx) => {
+    // When push is on, the session-push effect handles reminders in the
+    // background; firing in-app timers too would double up.
+    if (pushEnabledRef.current) return;
+    // Each tier uses its own message so the user doesn't habituate to a
+    // single recurring ping.
+    REMINDER_OFFSETS_SEC.forEach((sec, idx) => {
       const message = REMINDERS[idx] ?? REMINDERS[REMINDERS.length - 1];
-      reminderTimers.current.push(setTimeout(() => notify(message), ms));
+      reminderTimers.current.push(setTimeout(() => notify(message), sec * 1000));
     });
   };
 
@@ -261,6 +279,45 @@ export default function Home() {
 
   // Cleanup reminders on unmount
   useEffect(() => () => clearReminders(), []);
+
+  // Mirror secondsLeft into a ref so the session-push effect can read the
+  // current duration when the timer starts without re-running every tick.
+  const secondsLeftRef = useRef(secondsLeft);
+  secondsLeftRef.current = secondsLeft;
+
+  // On mount, if the user already granted notifications in a past visit,
+  // silently refresh the push subscription so background delivery keeps
+  // working (subscriptions can rotate). New permission grants happen on a
+  // user gesture in addTask.
+  useEffect(() => {
+    if (!isPushSupported()) return;
+    if (Notification.permission !== "granted") return;
+    enablePush().then((ok) => {
+      pushEnabledRef.current = ok;
+    });
+  }, []);
+
+  // Schedule (or cancel) the background pushes for the running session.
+  // Keyed on isRunning + task identity: starting/continuing a session
+  // reschedules from the fresh remaining time; pausing, stopping, or
+  // finishing cancels the whole set.
+  useEffect(() => {
+    if (!pushEnabledRef.current) return undefined;
+    if (isRunning && task) {
+      void scheduleSessionPushes({
+        title: task.title,
+        totalSeconds: secondsLeftRef.current,
+        endBody: SESSION_END_BODY,
+        reminders: REMINDER_OFFSETS_SEC.map((offsetSec, idx) => ({
+          offsetSec,
+          message: REMINDERS[idx] ?? REMINDERS[REMINDERS.length - 1],
+        })),
+      });
+    } else {
+      void cancelSessionPushes();
+    }
+    return undefined;
+  }, [isRunning, task]);
 
   useEffect(() => {
     if (!isRunning) return;
@@ -406,7 +463,28 @@ export default function Home() {
 
     // No place linked — keep the existing immediate-start behaviour.
     activateImmediately(candidate);
-    await requestPermission();
+    // Enable background push from this user gesture (iOS only allows the
+    // permission prompt from a gesture, and only inside an installed PWA).
+    // On success, schedule the just-started session's pushes immediately
+    // since the start effect already ran before the subscription existed.
+    if (isPushSupported() && Notification.permission !== "denied") {
+      const ok = await enablePush();
+      pushEnabledRef.current = ok;
+      if (ok) {
+        clearReminders();
+        void scheduleSessionPushes({
+          title: candidate.title,
+          totalSeconds: duration * 60,
+          endBody: SESSION_END_BODY,
+          reminders: REMINDER_OFFSETS_SEC.map((offsetSec, idx) => ({
+            offsetSec,
+            message: REMINDERS[idx] ?? REMINDERS[REMINDERS.length - 1],
+          })),
+        });
+      }
+    } else {
+      await requestPermission();
+    }
   };
 
   // Permission dialog actions.

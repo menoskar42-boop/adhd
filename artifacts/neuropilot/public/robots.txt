@@ -1,0 +1,19 @@
+# NeuroPilot — focus assistant for ADHD.
+# Crawl policy: index the public landing only. The other routes render
+# personal data (tasks, places, thoughts) the user typed into their own
+# browser — there is nothing useful on them for a search engine.
+
+User-agent: *
+Allow: /
+Disallow: /places
+Disallow: /scheduled
+Disallow: /thoughts
+
+# AI content-usage preferences (contentsignals.org / IETF draft).
+# This app has no articles or prose for an LLM to train on — it is a
+# task tool, not content. Search indexing and live agent reads are
+# welcome; bulk training is not.
+# Note: this is a Cloudflare/IETF draft directive — Bing and Google do
+# not currently parse it; it is honoured by Cloudflare-AI-aware crawlers
+# (e.g. AI Crawl Control) and is forward-compatible.
+Content-Signal: ai-train=no, search=yes, ai-input=yes

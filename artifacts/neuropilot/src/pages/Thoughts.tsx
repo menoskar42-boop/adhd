@@ -7,8 +7,10 @@ import {
   type Thought,
 } from "@/lib/thoughts";
 import { theme } from "@/lib/theme";
+import { useNoindex } from "@/hooks/use-noindex";
 
 export default function Thoughts() {
+  useNoindex();
   const [, navigate] = useLocation();
   const [thoughts, setThoughts] = useState<Thought[]>([]);
 

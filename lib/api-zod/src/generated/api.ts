@@ -14,3 +14,76 @@ import * as zod from "zod";
 export const HealthCheckResponse = zod.object({
   status: zod.string(),
 });
+
+/**
+ * Returns the server's VAPID public key for push subscription.
+ * @summary Get VAPID public key
+ */
+export const GetVapidPublicKeyResponse = zod.object({
+  publicKey: zod.string(),
+});
+
+/**
+ * Stores (or refreshes) a browser push subscription for a client.
+ * @summary Register a push subscription
+ */
+
+export const SubscribePushBody = zod.object({
+  clientId: zod.string().min(1),
+  subscription: zod.object({
+    endpoint: zod.string().min(1),
+    keys: zod.object({
+      p256dh: zod.string(),
+      auth: zod.string(),
+    }),
+  }),
+});
+
+export const SubscribePushResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
+ * Deletes a stored push subscription by its endpoint.
+ * @summary Remove a push subscription
+ */
+
+export const UnsubscribePushBody = zod.object({
+  endpoint: zod.string().min(1),
+});
+
+export const UnsubscribePushResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
+ * Schedules a notification to be delivered at fireAt. Any existing pending push with the same clientId and tag is replaced.
+ * @summary Schedule a future push
+ */
+
+export const SchedulePushBody = zod.object({
+  clientId: zod.string().min(1),
+  tag: zod.string().min(1),
+  title: zod.string().min(1),
+  body: zod.string(),
+  url: zod.string().optional(),
+  fireAt: zod.coerce.date(),
+});
+
+export const SchedulePushResponse = zod.object({
+  id: zod.number(),
+});
+
+/**
+ * Cancels pending pushes matching the given clientId and tag.
+ * @summary Cancel a scheduled push
+ */
+
+export const CancelScheduledPushBody = zod.object({
+  clientId: zod.string().min(1),
+  tag: zod.string().min(1),
+});
+
+export const CancelScheduledPushResponse = zod.object({
+  cancelled: zod.number(),
+});

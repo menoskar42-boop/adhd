@@ -8,3 +8,60 @@
 export interface HealthStatus {
   status: string;
 }
+
+export interface OkResponse {
+  ok: boolean;
+}
+
+export interface VapidKey {
+  publicKey: string;
+}
+
+export interface PushSubscriptionKeys {
+  p256dh: string;
+  auth: string;
+}
+
+export interface WebPushSubscription {
+  /** @minLength 1 */
+  endpoint: string;
+  keys: PushSubscriptionKeys;
+}
+
+export interface SubscribeRequest {
+  /** @minLength 1 */
+  clientId: string;
+  subscription: WebPushSubscription;
+}
+
+export interface UnsubscribeRequest {
+  /** @minLength 1 */
+  endpoint: string;
+}
+
+export interface ScheduleRequest {
+  /** @minLength 1 */
+  clientId: string;
+  /** @minLength 1 */
+  tag: string;
+  /** @minLength 1 */
+  title: string;
+  body: string;
+  url?: string;
+  fireAt: string;
+}
+
+export interface ScheduleResponse {
+  id: number;
+}
+
+export interface CancelRequest {
+  /** @minLength 1 */
+  clientId: string;
+  /** @minLength 1 */
+  tag: string;
+}
+
+export interface CancelResponse {
+  cancelled: number;
+}
